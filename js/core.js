@@ -79,7 +79,7 @@
   U.clear = function (node) { if (node) while (node.firstChild) node.removeChild(node.firstChild); return node; };
 
   /* ---------------- 存储 ---------------- */
-  var KEY = 'huozi_zhen_save_v1';
+  var KEY = 'glyph_clash_save_v1';
   U.save = function (obj) {
     try { root.localStorage.setItem(KEY, JSON.stringify(obj)); return true; }
     catch (e) { return false; }

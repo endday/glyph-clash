@@ -5,8 +5,8 @@
       <template v-if="m.kind === 'title'">
         <header class="head">
           <span class="seal">字</span>
-          <h1>活字阵</h1>
-          <span class="en">MOVABLE TYPE</span>
+          <h1>符阵</h1>
+          <span class="en">GLYPH CLASH</span>
           <p class="sub">在六边形的背包里摆汉字人物，<br>让它们自己打完这一仗。</p>
         </header>
 

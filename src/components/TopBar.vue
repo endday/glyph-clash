@@ -1,8 +1,8 @@
 <template>
   <header id="topbar" class="topbar">
     <div class="brand">
-      <span class="brand-zh">活字阵</span>
-      <span class="brand-en">MOVABLE TYPE</span>
+      <span class="brand-zh">符阵</span>
+      <span class="brand-en">GLYPH CLASH</span>
     </div>
 
     <div class="topstats">

@@ -718,8 +718,8 @@
     var wrap = el('div', { class: 'title-screen' });
     var inner = el('div', { class: 'title-inner' },
       el('div', { class: 'title-seal', text: '字' }),
-      el('h1', { class: 'title-zh', text: '活字阵' }),
-      el('div', { class: 'title-en', text: 'MOVABLE TYPE' }),
+      el('h1', { class: 'title-zh', text: '符阵' }),
+      el('div', { class: 'title-en', text: 'GLYPH CLASH' }),
       el('div', { class: 'title-sub', html: '在六边形的背包里摆汉字人物，<br>让它们自己打完这一仗。' })
     );
     var grid = el('div', { class: 'factions' });

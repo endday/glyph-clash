@@ -1,6 +1,6 @@
 {
-  "name": "huozi-zhen",
-  "description": "活字阵 · Movable Type —— 六角汉字自走棋",
+  "name": "glyph-clash",
+  "description": "符阵 · Glyph Clash —— 六角汉字自走棋",
   "private": true,
   "version": "0.1.0",
   "type": "module",
