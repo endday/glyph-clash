@@ -244,11 +244,31 @@
     removePiece(run, src);
     dst.level++;
     dst.cd = 0;
+    // 2 级二选一：规则进化（见 ITERATION.md §6）
+    if (dst.level === 2 && !dst.evo && D.evoOptions(dst.k)) dst.pendingEvo = true;
     run.counters.merged++;
     if (dst.level > run.counters.best) run.counters.best = dst.level;
     var g = mods(run).mergeGold || 0;
     if (g) run.gold += g;
     return true;
+  }
+
+  // 选完进化：把 pendingEvo 换成 evo id
+  function chooseEvo(run, p, evoId) {
+    if (!p) return false;
+    var opt = D.evoDef(p.k, evoId);
+    if (!opt) return false;
+    p.evo = evoId;
+    p.pendingEvo = false;
+    var def = p.def || D.pieceById(p.k);
+    pushLog(run, '进化 · ' + (def ? def.name : p.k) + ' 选择「' + opt.name + '」。');
+    return true;
+  }
+
+  function pendingEvo(run) {
+    var all = allPieces(run);
+    for (var i = 0; i < all.length; i++) if (all[i].pendingEvo) return all[i];
+    return null;
   }
 
   /* ---------------- 拼字觉醒 ---------------- */
@@ -411,6 +431,8 @@
     allPieces: allPieces,
     canMerge: canMerge,
     mergeInto: mergeInto,
+    chooseEvo: chooseEvo,
+    pendingEvo: pendingEvo,
     checkHeroes: checkHeroes,
     shardProgress: shardProgress,
     startDay: startDay,

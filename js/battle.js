@@ -38,6 +38,9 @@
       burnDps: 0, burnUntil: 0,
       hasteUntil: 0,
       stunned: 0,
+      evo: src.evo || null,
+      evoDef: src.evo && D.evoDef ? D.evoDef(def.id, src.evo) : null,
+      on: null,
       skillDef: D.ULTS[def.id] || null,
       skillT: 0,
       canUlt: (src.level || 1) >= 3 && !!D.ROLE_ULT[def.role],
@@ -45,6 +48,12 @@
       ultT: 0, ultReady: false
     };
     pos.c = p.c; pos.r = p.r;
+    // 有效钩子表 = 棋子自带 on + 进化覆盖
+    p.on = {};
+    if (def.on) for (var hk in def.on) if (def.on.hasOwnProperty(hk)) p.on[hk] = def.on[hk];
+    if (p.evoDef && p.evoDef.on) for (var ek in p.evoDef.on) if (p.evoDef.on.hasOwnProperty(ek)) {
+      p.on[ek] = Object.assign({}, p.on[ek] || {}, p.evoDef.on[ek]);
+    }
     return p;
   }
 
@@ -60,22 +69,23 @@
       for (var i = 0; i < list.length; i++) {
         var p = list[i], d = p.def, lv = LVL[p.level] || 1;
         p.aura = { dmg: 0, spd: 0, hp: 0, range: 0, burn: 0, slow: 0, gold: 0, poison: 0 };
+        var es = (p.evoDef && p.evoDef.stats) || {};
         p.raw = {
-          hp: (p.structure ? 0 : (d.hp || 100)) * lv * (CFG.hpScale || 1) * (1 + (m.hp || 0)) * (d.role === 'tank' ? 1 + (m.tankHp || 0) : 1),
-          dmg: (d.dmg || 0) * lv * (1 + (m.dmgMul || 0)),
-          atkBase: (d.atk || 1.5),
+          hp: (p.structure ? 0 : (d.hp || 100)) * lv * (CFG.hpScale || 1) * (1 + (m.hp || 0)) * (d.role === 'tank' ? 1 + (m.tankHp || 0) : 1) * (es.hpMul || 1),
+          dmg: (d.dmg || 0) * lv * (1 + (m.dmgMul || 0)) * (es.dmgMul || 1),
+          atkBase: (d.atk || 1.5) * (es.atkMul || 1),
           spdMul: 1 + (m.spd || 0) + (d.arc ? (m.arcSpd || 0) : 0),
-          range: (d.range || 1) + (d.arc ? (m.arcRange || 0) : 0),
+          range: (d.range || 1) + (es.rangeAdd || 0) + (d.arc ? (m.arcRange || 0) : 0),
           burn: (d.burn || 0) + (m.pieceBurn || 0),
           slow: (d.slow || 0),
           gold: (d.role === 'gold' ? 0 : (m.killGold || 0))
         };
-        p.heal = (d.heal || 0) * lv * (1 + (m.healBoost || 0));
+        p.heal = (d.heal || 0) * lv * (1 + (m.healBoost || 0)) * (es.healMul || 1);
         p.shieldAmt = (d.shield || 0) * lv;
         p.goldAmt = (d.gold || 0);
         p.targets = d.chain ? d.chain + 1 : 1;
         p.pierce = d.pierce === true ? 1 : (d.pierce | 0);
-        p.splash = d.splash === true ? 1 : (d.splash | 0);
+        p.splash = (d.splash === true ? 1 : (d.splash | 0)) + (es.splashAdd || 0);
         p.armor = (m.frontArmor && (p.r === (p.side === 'p' ? 4 : 3))) ? m.frontArmor : 0;
         if (p.ench && p.ench.dmgTaken) p.armor = Math.max(p.armor, p.ench.dmgTaken);
         applyAura(p);
@@ -216,9 +226,9 @@
     for (var s = 0; s < lists.length; s++) {
       for (var i = 0; i < lists[s].length; i++) {
         var p = lists[s][i];
-        if (!p.alive || !p.def.on) continue;
-        for (var k in p.def.on) {
-          if (!p.def.on.hasOwnProperty(k)) continue;
+        if (!p.alive || !p.on) continue;
+        for (var k in p.on) {
+          if (!p.on.hasOwnProperty(k)) continue;
           if (!b.hooks[k]) b.hooks[k] = [];
           b.hooks[k].push(p);
         }
@@ -227,7 +237,8 @@
   }
 
   function rateOk(b, p, type) {
-    var lim = (p.def.limits && p.def.limits.rate) || 3;
+    var lim = ((p.def.limits && p.def.limits.rate) || 3) + ((p.evoDef && p.evoDef.limits && p.evoDef.limits.rate) || 0);
+    if (lim < 1) lim = 1;
     var w = EV.rateWindow || 1;
     p._rate = p._rate || {};
     var rec = p._rate[type];
@@ -327,10 +338,18 @@
       if (src && src.alive && !src.structure) {
         var foe = candidates(b, src);                 // 立刻补一刀（会再派发一次 hit，深度 +1）
         if (foe.length) {
-          hit(b, src, foe[0], src.dmg * 1.3, src.side === 'p', ev.depth + 1);
-          src.hasteUntil = Math.max(src.hasteUntil || 0, b.t + 2);   // 连击自带加速，循环自我强化
+          hit(b, src, foe[0], src.dmg * (spec.mul || 1.3), src.side === 'p', ev.depth + 1);
         }
         src.extra = (src.extra || 0) + 1;
+      }
+      // 鼓点让全队都提前出手：人越多收益越大（连击循环奖励「宽阵」）
+      list = allyList(b, p);
+      for (i = 0; i < list.length; i++) {
+        a = list[i];
+        if (!a.alive || a.structure) continue;
+        a.cd = Math.max(0, (a.cd || 0) - 0.6);
+        a.hasteUntil = Math.max(a.hasteUntil || 0, b.t + 1.5);
+        a.hasteMul = Math.max(a.hasteMul || 0, 0.35);
       }
       emit(b, 'trigger', { src: p, tgt: tgt, depth: ev.depth + 1 });
       return;
@@ -356,7 +375,7 @@
       for (var i = 0; i < hooks.length; i++) {
         var p = hooks[i];
         if (!p.alive) continue;
-        var spec = p.def.on[ev.type];
+        var spec = p.on[ev.type];
         if (spec) runHook(b, p, ev, spec);
       }
     }

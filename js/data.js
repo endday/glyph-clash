@@ -225,7 +225,7 @@
       kind: 'engine',
       // 累计命中 → 每 3 次给出手者一次额外攻击（连击循环）
       on: { hit: { scope: 'team', do: 'combo', need: 2 } },
-      limits: { rate: 2 },
+      limits: { rate: 3 },
       desc: '引擎。全队每累计 2 次命中，出手者立刻再打一次（每秒最多 1.5 次）。'
     },
     flag_spd: { id: 'flag_spd', legacy: true, ch: '令', name: '令疾旗', size: 1, tier: 1, price: 5, role: 'flag', aura: 'spd', value: 0.15, desc: '光环：相邻棋子攻速 +15%。' },
@@ -240,6 +240,63 @@
     },
     flag_slow: { id: 'flag_slow', legacy: true, ch: '冰', name: '冰鉴旗', size: 1, tier: 2, price: 5, role: 'flag', aura: 'slow', value: 0.30, desc: '光环：相邻棋子攻击附带减速。' },
     flag_gold: { id: 'flag_gold', legacy: true, ch: '鳞', name: '金鳞旗', size: 1, tier: 2, price: 5, role: 'flag', aura: 'gold', value: 1, desc: '光环：相邻棋子击杀掉 1 金。' }
+  };
+
+  /* ---------------- 规则进化（2 级二选一，见 ITERATION.md §6） ----------------
+     每项可以带：stats（atkMul/hpMul/dmgMul/rangeAdd）、on（覆盖或新增事件钩子）、limits（限频加减） */
+  var EVOLVE = {
+    /* 战斗单位 */
+    dao: [
+      { id: 'fast', name: '快刀', desc: '攻击间隔 −25%，出手更密', stats: { atkMul: 0.75 } },
+      { id: 'heavy', name: '重刀', desc: '攻击间隔 +30%，命中附带 25% 燃烧', stats: { atkMul: 1.3 },
+        on: { hit: { scope: 'self', do: 'burn', v: 0.25, dur: 3 } } }
+    ],
+    dun: [
+      { id: 'wall', name: '厚壁', desc: '血量上限 +30%', stats: { hpMul: 1.3 } },
+      { id: 'swift', name: '疾盾', desc: '出手间隔 −25%，护盾更勤', stats: { atkMul: 0.75 } }
+    ],
+    gong: [
+      { id: 'rapid', name: '连射', desc: '攻击间隔 −20%', stats: { atkMul: 0.8 } },
+      { id: 'pierce', name: '穿云', desc: '伤害 +35%，射程 +1', stats: { dmgMul: 1.35, rangeAdd: 1 } }
+    ],
+    /* 触发器 / 转换器 */
+    huo: [
+      { id: 'blaze', name: '烈焰', desc: '燃烧强度 45% → 65%', on: { hit: { v: 0.65 } } },
+      { id: 'rain', name: '火雨', desc: '溅射范围 +1，但伤害 −15%', stats: { dmgMul: 0.85, splashAdd: 1 } }
+    ],
+    shuang: [
+      { id: 'deep', name: '深寒', desc: '减速 35% → 55%', on: { hit: { v: 0.55 } } },
+      { id: 'armor', name: '霜甲', desc: '血量上限 +30%', stats: { hpMul: 1.3 } }
+    ],
+    lei: [
+      { id: 'fork', name: '分叉', desc: '连锁目标 +1', on: { hit: { n: 3 } } },
+      { id: 'storm', name: '雷暴', desc: '伤害 +30%', stats: { dmgMul: 1.3 } }
+    ],
+    nu: [
+      { id: 'rapid', name: '速射', desc: '攻击间隔 −30%', stats: { atkMul: 0.7 } },
+      { id: 'sunder', name: '破甲', desc: '伤害 +40%', stats: { dmgMul: 1.4 } }
+    ],
+    yi: [
+      { id: 'firstaid', name: '急救', desc: '治疗量 +40%', stats: { healMul: 1.4 } },
+      { id: 'wide', name: '广域', desc: '射程 +1，出手 −15%', stats: { rangeAdd: 1, atkMul: 0.85 } }
+    ],
+    /* 引擎 */
+    flag_dmg: [
+      { id: 'urgent', name: '急鼓', desc: '每 1 次命中就触发（每秒上限不变）', on: { hit: { need: 1 } }, limits: { rate: -1 } },
+      { id: 'loud', name: '战鼓', desc: '连击补刀伤害 1.3 → 1.8 倍', on: { hit: { mul: 1.8 } } }
+    ],
+    flag_burn: [
+      { id: 'wildfire', name: '燎原', desc: '扩散强度 50% → 85%', on: { burn_tick: { v: 0.85 } } },
+      { id: 'control', name: '控火', desc: '每秒可扩散 1 → 2 次', limits: { rate: 1 } }
+    ],
+    feng: [
+      { id: 'long', name: '长风', desc: '加速 50% → 75%', on: { trigger: { v: 0.75 } } },
+      { id: 'gale', name: '疾风', desc: '每秒可触发 3 → 5 次', limits: { rate: 2 } }
+    ],
+    ji: [
+      { id: 'precise', name: '精密', desc: '每次减冷却 1.5 → 2.5 秒', on: { burn_tick: { v: 2.5 } } },
+      { id: 'link', name: '连动', desc: '每秒可充能 3 → 5 次', limits: { rate: 2 } }
+    ]
   };
 
   /* ---------------- 门派 ---------------- */
@@ -376,9 +433,18 @@
     return m;
   }());
 
+  function evoOptions(id) { return EVOLVE[id] || null; }
+  function evoDef(id, evoId) {
+    var list = EVOLVE[id];
+    if (!list) return null;
+    for (var i = 0; i < list.length; i++) if (list[i].id === evoId) return list[i];
+    return null;
+  }
+
   GB.D = {
     CFG: CFG, LVL: LVL, ULTS: ULTS, ROLE_ULT: ROLE_ULT, PIECES: PIECES, FLAGS: FLAGS, FACTIONS: FACTIONS,
     HEROES: HEROES, SKILLS: SKILLS, ENCHANTS: ENCHANTS, UNLOCK: UNLOCK,
-    pieceById: pieceById, poolFor: poolFor, heroByChar: heroByChar
+    pieceById: pieceById, poolFor: poolFor, heroByChar: heroByChar,
+    EVOLVE: EVOLVE, evoOptions: evoOptions, evoDef: evoDef
   };
 }(typeof window !== 'undefined' ? window : globalThis));

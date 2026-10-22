@@ -820,6 +820,16 @@
   function sellPiece(p) { sell(p); }
   function refresh() { after(); }
 
+  function chooseEvo(id) {
+    var p = GB.Run.pendingEvo(run);
+    if (!p) return false;
+    if (!GB.Run.chooseEvo(run, p, id)) return false;
+    GB.audio.hero();
+    toast('进化完成', 'gold');
+    after();
+    return true;
+  }
+
   function closeShop() {
     shopOpen = false;
     if (root.GB && root.GB.storeBridge) { root.GB.storeBridge.setShop(false); return; }
@@ -867,6 +877,7 @@
     refresh: refresh,
     openShop: openShop,
     closeShop: closeShop,
+    chooseEvo: chooseEvo,
     buyOfferById: buyOfferById,
     useUltById: useUltById,
     renderDetail: renderDetail

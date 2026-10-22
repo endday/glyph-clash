@@ -23,6 +23,7 @@ export const ui = reactive({
   detail: null,        // 棋子详情卡
   log: [],             // 战报（最近 5 条）
   modal: null,         // 弹窗：title / outcome / menu
+  evo: null,           // 待选规则进化 {id, ch, name, options}
   toasts: [],          // 浮动提示
   drag: null,          // 拖动中的棋子 {id, ch, hero, x, y, active, from}
   b: null,             // 战斗快照
@@ -231,6 +232,16 @@ export function installBridge() {
       ui.log = (run.log || []).slice(-5).reverse().map((e) => ({ d: e.d, t: e.t }))
       ui.b = battle && run.phase === 'battle' ? snapBattle(battle) : null
       ui.inited = true
+      var pend = g.Run.pendingEvo ? g.Run.pendingEvo(run) : null
+      if (pend) {
+        var pd = pend.def || g.D.pieceById(pend.k)
+        ui.evo = {
+          id: pend.id,
+          ch: pd ? pd.ch : '?',
+          name: pd ? pd.name : pend.k,
+          options: (g.D.evoOptions(pend.k) || []).map((o) => ({ id: o.id, name: o.name, desc: o.desc }))
+        }
+      } else ui.evo = null
       ui.rev++
     },
 

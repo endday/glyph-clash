@@ -1,4 +1,22 @@
 <template>
+  <div v-if="ui.evo" class="ov evo-ov">
+    <div class="card">
+      <header class="outcome">
+        <span class="bigseal win">{{ ui.evo.ch }}</span>
+        <span class="ot">
+          <b>{{ ui.evo.name }} · 规则进化</b>
+          <em>升到 2 级，二选一。选完就定，不能反悔。</em>
+        </span>
+      </header>
+      <div class="evos">
+        <button v-for="o in ui.evo.options" :key="o.id" class="evo-opt" @click="pickEvo(o.id)">
+          <b>{{ o.name }}</b>
+          <em>{{ o.desc }}</em>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <div v-if="m" class="ov" @click.self="onBack">
     <div class="card">
       <!-- 门派选择 -->
@@ -75,6 +93,11 @@ import { ui } from '../store.js'
 
 const m = computed(() => ui.modal)
 const GB = () => window.GB
+
+function pickEvo(id) {
+  const g = GB()
+  if (g && g.UI && g.UI.chooseEvo) g.UI.chooseEvo(id)
+}
 
 function close() {
   const g = GB()
@@ -185,6 +208,15 @@ function onBack() {
 .mh { margin: 0; font-family: var(--kai, "KaiTi", serif); font-size: 18px; letter-spacing: 2px; }
 .p { margin: 0; font-size: 11.5px; line-height: 1.6; color: #4a4238; }
 .p.muted { color: #8a7d6b; font-size: 10.5px; }
+
+.evos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.evo-opt { display: flex; flex-direction: column; gap: 3px; text-align: left; cursor: pointer;
+  padding: 10px 11px; border-radius: 10px; min-width: 0;
+  border: 1.5px solid rgba(160, 122, 45, .55);
+  background: linear-gradient(180deg, #fdf7e8, #f2e6cc); color: #1b1815; }
+.evo-opt:active { transform: translateY(1px); }
+.evo-opt b { font-family: var(--kai, "KaiTi", serif); font-size: 15px; letter-spacing: 1px; color: #7a5c14; }
+.evo-opt em { font-style: normal; font-size: 10.5px; line-height: 1.45; color: #5d5347; }
 
 .acts { display: flex; gap: 7px; justify-content: flex-end; flex-wrap: wrap; margin-top: 2px; }
 .sbtn { min-height: 34px; padding: 6px 13px; border-radius: 8px; cursor: pointer;
