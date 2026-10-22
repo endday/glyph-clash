@@ -11,6 +11,12 @@
       <span class="bar o"><i :style="{ width: b.ohp + '%' }"></i></span>
     </div>
 
+    <div v-if="b.chain && b.chain.length" class="chain">
+      <span v-for="(c, i) in b.chain.slice(-3)" :key="i" class="step">
+        <b>{{ c.label }}</b>{{ c.src ? c.src : '' }}<i v-if="c.tgt">→{{ c.tgt }}</i>
+      </span>
+    </div>
+
     <div v-if="b.ults.length" class="ults">
       <button
         v-for="u in b.ults"
@@ -78,6 +84,12 @@ function auto() {
 .bar i { display: block; height: 100%; transition: width .18s linear; }
 .bar.p i { background: linear-gradient(90deg, #4d7d63, #2f5343); }
 .bar.o i { background: linear-gradient(90deg, #c8604c, #8e291e); }
+
+.chain { display: flex; gap: 5px; overflow-x: auto; font-size: 10px; color: #6d6255; }
+.chain .step { flex: 0 0 auto; padding: 2px 6px; border-radius: 999px;
+  background: rgba(255, 252, 244, .8); border: 1px solid rgba(40, 33, 26, .12); white-space: nowrap; }
+.chain .step b { color: #8a6a1f; margin-right: 3px; }
+.chain .step i { font-style: normal; color: #9b8f7d; }
 
 .ults { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 1px; }
 .ult { position: relative; flex: 0 0 auto; width: 46px; height: 40px; border-radius: 8px;

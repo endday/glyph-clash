@@ -121,6 +121,10 @@
       for (i = 0; i < list.length; i++) {
         var src = list[i];
         if (!src.alive || !src.def.aura) continue;
+        var kind = src.def.aura;
+        // 光环降级（ITERATION.md §4）：只保留 血/攻速/射程 三条属性光环，
+        // 燃烧、减速、中毒、金币这些改成事件规则（见各棋子的 on 钩子）
+        if (kind !== 'hp' && kind !== 'spd' && kind !== 'range') continue;
         var val = auraValue(src.def, src.level) * (1 + (m.auraBoost || 0));
         var touched = {};
         for (j = 0; j < src.cells.length; j++) {
@@ -155,6 +159,7 @@
       factionO: o.factionO || 'dongwu',
       p: [], e: [],
       shots: [], floats: [], events: [],
+      q: [], hooks: {}, trace: [], evSeq: 0, overflow: 0,
       status: 'run',
       autoUlt: o.autoUlt !== false,
       stats: { dmgP: 0, dmgO: 0, killsP: 0, killsO: 0, gold: 0 },
@@ -170,7 +175,191 @@
       if (piece) b.e.push(piece);
     }
     stats(b);
+    rebuildHooks(b);
     return b;
+  }
+
+  /* ---------------- 事件总线（见 ITERATION.md） ----------------
+     规则：深度 ≤ CFG.events.maxDepth；每个引擎有 limits.rate 限频；
+          charge 事件不再触发任何 charge（防自循环）。            */
+  var EV = (CFG && CFG.events) || {};
+
+  function emit(b, type, o) {
+    o = o || {};
+    var ev = {
+      type: type,
+      src: o.src || null,
+      tgt: o.tgt || null,
+      side: o.side || (o.src ? o.src.side : (o.tgt ? o.tgt.side : null)),
+      dmg: o.dmg || 0,
+      v: o.v,
+      dur: o.dur,
+      depth: o.depth || 0
+    };
+    if (ev.depth > (EV.maxDepth || 3)) { b.overflow++; return; }
+    if (b.q.length > (EV.queueMax || 240)) { b.overflow++; return; }
+    b.q.push(ev);
+    b.stats.ev = b.stats.ev || {};
+    b.stats.ev[type] = (b.stats.ev[type] || 0) + 1;
+    b.trace.push({
+      t: +b.t.toFixed(1), type: type,
+      src: ev.src && ev.src.def ? ev.src.def.ch : '',
+      tgt: ev.tgt && ev.tgt.def ? ev.tgt.def.ch : ''
+    });
+    if (b.trace.length > (EV.traceMax || 24)) b.trace.shift();
+  }
+
+  // 谁对哪类事件感兴趣（棋子阵亡后要重建）
+  function rebuildHooks(b) {
+    b.hooks = {};
+    var lists = [b.p, b.e];
+    for (var s = 0; s < lists.length; s++) {
+      for (var i = 0; i < lists[s].length; i++) {
+        var p = lists[s][i];
+        if (!p.alive || !p.def.on) continue;
+        for (var k in p.def.on) {
+          if (!p.def.on.hasOwnProperty(k)) continue;
+          if (!b.hooks[k]) b.hooks[k] = [];
+          b.hooks[k].push(p);
+        }
+      }
+    }
+  }
+
+  function rateOk(b, p, type) {
+    var lim = (p.def.limits && p.def.limits.rate) || 3;
+    var w = EV.rateWindow || 1;
+    p._rate = p._rate || {};
+    var rec = p._rate[type];
+    if (!rec || b.t - rec.t0 > w) { p._rate[type] = { t0: b.t, n: 1 }; return true; }
+    if (rec.n >= lim) return false;
+    rec.n++;
+    return true;
+  }
+
+  function adjacentTo(a, z) {
+    if (!a || !z || !a.cells || !z.cells) return false;
+    for (var i = 0; i < a.cells.length; i++) {
+      var nb = MAP.neighbors(a.cells[i].c, a.cells[i].r);
+      for (var j = 0; j < nb.length; j++) {
+        for (var k = 0; k < z.cells.length; k++) {
+          if (nb[j].c === z.cells[k].c && nb[j].r === z.cells[k].r) return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function foeList(b, p) { return p.side === 'p' ? b.e : b.p; }
+  function allyList(b, p) { return p.side === 'p' ? b.p : b.e; }
+
+  // 燃烧可叠加（这是循环的收益来源），上限 = 目标最大生命的 8%/秒
+  function applyBurn(b, tgt, dmg, dur) {
+    if (!tgt || !tgt.alive || tgt.structure) return;
+    var cap = (tgt.maxHp || 1000) * 0.10;
+    tgt.burnDps = Math.min((tgt.burnDps || 0) + dmg, cap);
+    tgt.burnUntil = Math.max(tgt.burnUntil, b.t + (dur || 2.5));
+  }
+
+  function runHook(b, p, ev, spec) {
+    var src = ev.src, tgt = ev.tgt;
+    if (spec.scope === 'team' && ev.side !== p.side) return;
+    if (spec.scope === 'self' && p !== src) return;
+    if (spec.scope === 'adjacent') {
+      var anchor = src || tgt;
+      if (anchor === p) return;
+      if (!adjacentTo(p, anchor)) return;
+    }
+    if (!rateOk(b, p, ev.type)) return;
+
+    var i, a, list;
+    if (spec.do === 'burn') {
+      if (!tgt || tgt.side === p.side) return;
+      applyBurn(b, tgt, (ev.dmg || p.dmg) * spec.v, spec.dur);
+      emit(b, 'trigger', { src: p, tgt: tgt, depth: ev.depth + 1 });
+      return;
+    }
+    if (spec.do === 'slow') {
+      if (!tgt || tgt.side === p.side) return;
+      tgt.slowMul = spec.v; tgt.slowUntil = Math.max(tgt.slowUntil, b.t + (spec.dur || 2.5));
+      emit(b, 'trigger', { src: p, tgt: tgt, depth: ev.depth + 1 });
+      return;
+    }
+    if (spec.do === 'chain') {
+      if (!tgt) return;
+      list = alliesAround(b, tgt, 1.6).slice(0, spec.n || 2);
+      for (i = 0; i < list.length; i++) {
+        a = list[i];
+        if (a.side === p.side) continue;
+        hit(b, p, a, (ev.dmg || p.dmg) * spec.v, p.side === 'p', ev.depth + 1);
+      }
+      emit(b, 'trigger', { src: p, tgt: tgt, depth: ev.depth + 1 });
+      return;
+    }
+    if (spec.do === 'spread') {
+      if (!tgt) return;
+      list = alliesAround(b, tgt, 1.6);
+      for (i = 0; i < list.length; i++) {
+        a = list[i];
+        if (a.side === tgt.side) applyBurn(b, a, (ev.dmg || 0) * (spec.v || 0.5), 2.5);
+      }
+      emit(b, 'trigger', { src: p, tgt: tgt, depth: ev.depth + 1 });
+      return;
+    }
+    if (spec.do === 'charge') {
+      // 燃烧跳伤 → 给相邻战斗单位减冷却（不再派发 charge 事件，防自循环）
+      list = allyList(b, p);
+      for (i = 0; i < list.length; i++) {
+        a = list[i];
+        if (!a.alive || a.structure || a.def.role === 'flag') continue;
+        if (!adjacentTo(p, a)) continue;
+        a.cd = Math.max(0, (a.cd || 0) - (spec.v || 1));
+        a.charged = 1;
+      }
+      emit(b, 'trigger', { src: p, tgt: tgt, depth: ev.depth + 1 });
+      return;
+    }
+    if (spec.do === 'combo') {
+      // 全队累计命中：满 need 次 → 出手者立刻再打一次（额外攻击不计入累计）
+      p._combo = (p._combo || 0) + 1;
+      if (p._combo < (spec.need || 3)) return;
+      p._combo = 0;
+      if (src && src.alive && !src.structure) {
+        var foe = candidates(b, src);                 // 立刻补一刀（会再派发一次 hit，深度 +1）
+        if (foe.length) {
+          hit(b, src, foe[0], src.dmg * 1.3, src.side === 'p', ev.depth + 1);
+          src.hasteUntil = Math.max(src.hasteUntil || 0, b.t + 2);   // 连击自带加速，循环自我强化
+        }
+        src.extra = (src.extra || 0) + 1;
+      }
+      emit(b, 'trigger', { src: p, tgt: tgt, depth: ev.depth + 1 });
+      return;
+    }
+    if (spec.do === 'haste') {
+      list = allyList(b, p);
+      for (i = 0; i < list.length; i++) {
+        a = list[i];
+        if (!a.alive) continue;
+        a.hasteUntil = Math.max(a.hasteUntil || 0, b.t + (spec.dur || 2));
+        a.hasteMul = Math.max(a.hasteMul || 0, spec.v || 0.35);
+      }
+      return;
+    }
+  }
+
+  function flush(b) {
+    var guard = 0;
+    while (b.q.length && guard++ < (EV.queueMax || 240)) {
+      var ev = b.q.shift();
+      var hooks = b.hooks[ev.type];
+      if (!hooks) continue;
+      for (var i = 0; i < hooks.length; i++) {
+        var p = hooks[i];
+        if (!p.alive) continue;
+        var spec = p.def.on[ev.type];
+        if (spec) runHook(b, p, ev, spec);
+      }
+    }
   }
 
   /* ---------------- 目标 ---------------- */
@@ -307,6 +496,7 @@
     // 背水一战：只剩最后一个棋子时攻速暴涨
     if (!b.lastStandP && aliveCount(b.p) <= 1) { b.lastStandP = true; b.events.push({ type: 'laststand', side: 'p' }); }
     if (!b.lastStandO && aliveCount(b.e) <= 1) { b.lastStandO = true; b.events.push({ type: 'laststand', side: 'o' }); }
+    flush(b);
   }
 
   function aliveCount(list) {
@@ -337,12 +527,19 @@
       p.hitT = Math.max(0, p.hitT - dt * 3);
       p.healT = Math.max(0, p.healT - dt * 2);
 
-      if (p.burnUntil > b.t) hurt(b, p, p.burnDps * dt, true);
+      if (p.burnUntil > b.t) {
+        hurt(b, p, p.burnDps * dt, true);
+        p._bt = (p._bt || 0) + dt;
+        if (p._bt >= 0.5) {
+          p._bt = 0;
+          emit(b, 'burn_tick', { src: p, tgt: p, dmg: p.burnDps * 0.5, side: p.side === 'p' ? 'o' : 'p' });
+        }
+      }
       if (!p.alive) continue;
       if (p.stunned > 0) { p.stunned -= dt; continue; }
       if (p.def.role === 'flag') continue;
 
-      var haste = p.hasteUntil > b.t ? (1 + 0.35) : 1;
+      var haste = p.hasteUntil > b.t ? (1 + (p.hasteMul || 0.35)) : 1;
       var slow = p.slowUntil > b.t ? (1 + p.slowMul) : 1;
       var ls = lastStand ? (1 + CFG.lastStandBonus) : 1;
       if (p.skillDef) {
@@ -378,6 +575,7 @@
       var t = allies[0];
       t.hp = Math.min(t.maxHp, t.hp + p.heal);
       t.healT = 1;
+      if (p.def.emits === 'trigger') emit(b, 'trigger', { src: p, tgt: t, depth: 0 });
       b.events.push({ type: 'heal', x1: p.x, y1: p.y, x2: t.x, y2: t.y, side: p.side });
       b.floats.push({ x: t.x, y: t.y, v: '+' + Math.round(p.heal), life: 0.7, good: true });
       return;
@@ -425,8 +623,9 @@
     }
   }
 
-  function hit(b, p, e, dmg, isP) {
+  function hit(b, p, e, dmg, isP, depth) {
     if (!e.alive) return;
+    if (depth === undefined) depth = 0;
     hurt(b, e, dmg, false, p);
     if (p.burn > 0) { e.burnDps = Math.max(e.burnDps, dmg * p.burn); e.burnUntil = Math.max(e.burnUntil, b.t + 2.5); }
     if (p.slow > 0) { e.slowMul = p.slow; e.slowUntil = Math.max(e.slowUntil, b.t + 2.5); }
@@ -441,6 +640,8 @@
     }
     if (isP) b.stats.dmgP += dmg; else b.stats.dmgO += dmg;
     if (b.floats.length < 24) b.floats.push({ x: e.x, y: e.y, v: Math.round(dmg), life: 0.55 });
+    b.stats.hits = (b.stats.hits || 0) + 1;
+    emit(b, 'hit', { src: p, tgt: e, dmg: dmg, side: p.side, depth: depth });
   }
 
   function alliesAround(b, e, radius) {
@@ -471,6 +672,7 @@
       if (t.side === 'p') b.stats.killsO++; else b.stats.killsP++;
       b.events.push({ type: 'kill', x: t.x, y: t.y, ch: t.def.ch, side: t.side });
       if (from && from.goldOnKill && b.stats.gold < 15) b.stats.gold += from.goldOnKill;
+      rebuildHooks(b);
     }
   }
 
@@ -542,6 +744,9 @@
     create: create,
     step: step,
     auraValue: auraValue,
+    emit: emit,
+    rebuildHooks: rebuildHooks,
+    trace: function (b) { return b ? b.trace.slice(-6) : []; },
     useUlt: useUlt,
     sumHp: sumHp,
     aliveCount: aliveCount,

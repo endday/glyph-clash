@@ -42,7 +42,7 @@ function send(method, params = {}) {
         pending.delete(mid);
         rej(new Error('timeout ' + method));
       }
-    }, 30000);
+    }, 180000);
   });
 }
 

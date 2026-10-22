@@ -166,6 +166,12 @@ function snapDetail(p) {
   }
 }
 
+const CHAIN_LABEL = {
+  hit: '命中',
+  burn_tick: '燃烧',
+  trigger: '触发'
+}
+
 function snapBattle(b) {
   const B = GB().Battle
   const sum = (list) => list.reduce((a, p) => a + (p.alive ? p.hp : 0), 0)
@@ -185,7 +191,13 @@ function snapBattle(b) {
     eMax: b.e.filter((x) => !x.structure).length,
     autoUlt: b.autoUlt !== false,
     ults,
-    ready: ults.filter((u) => u.ready).length
+    ready: ults.filter((u) => u.ready).length,
+    chain: (B.trace ? B.trace(b) : []).map((e) => ({
+      t: e.t,
+      label: CHAIN_LABEL[e.type] || e.type,
+      src: e.src,
+      tgt: e.tgt
+    }))
   }
 }
 
