@@ -1,5 +1,8 @@
 # 符阵 · Glyph Clash
 
+[![在线试玩](https://img.shields.io/badge/%E5%9C%A8%E7%BA%BF%E8%AF%95%E7%8E%A9-endday.github.io%2Fglyph--clash-2ea44f)](https://endday.github.io/glyph-clash/)
+[![Deploy to GitHub Pages](https://github.com/endday/glyph-clash/actions/workflows/deploy.yml/badge.svg)](https://github.com/endday/glyph-clash/actions/workflows/deploy.yml)
+
 > 六角背包自走棋：把「字」摆进格子，让它们自己打完这一仗。
 
 > 在六边形的背包里摆汉字人物，前排扛伤、后排输出，让它们自己打完这一仗。
