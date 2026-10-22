@@ -80,6 +80,7 @@
         <footer class="acts">
           <button class="sbtn gold" @click="toggleUlt">大招：{{ m.autoUlt ? '自动释放' : '手动释放' }}</button>
           <button class="sbtn" @click="restart">重新开始</button>
+          <button class="sbtn" @click="repo">项目仓库</button>
           <button class="sbtn red" @click="dismiss">返回</button>
         </footer>
       </template>
@@ -136,6 +137,7 @@ function toggleUlt() {
   if (g.Game.openMenu) g.Game.openMenu()
 }
 function dismiss() { close() }
+function repo() { window.open('https://github.com/endday/glyph-clash', '_blank', 'noopener') }
 function onBack() {
   if (m.value && m.value.kind === 'menu') close()
 }

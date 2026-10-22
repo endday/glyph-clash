@@ -15,6 +15,10 @@
 > 本文描述的是**代码当前实际实现**。数值出处：`js/data.js`、`js/run.js`、`js/shop.js`、`js/battle.js`、`js/ai.js`。
 > 设计意图和取舍见 [DESIGN.md](DESIGN.md)（那份文档只讲「为什么」，数值以本文为准）。
 
+## 在线试玩
+
+**https://endday.github.io/glyph-clash/** —— 推送到 `main` 后由 GitHub Actions 自动构建并发布（见 `.github/workflows/deploy.yml`），打开就能玩，手机浏览器也可以。
+
 ## 长这样
 
 | 晨市 · 摆阵 | 对局 | 门派 |
