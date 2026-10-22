@@ -1,0 +1,551 @@
+/* battle.js — 静态自走棋对轰：走位定生死，抛物线切后排 */
+(function (root) {
+  'use strict';
+  var GB = root.GB = root.GB || {};
+  var D = GB.D, MAP = GB.MAP, U = GB.U;
+  var CFG = D.CFG, LVL = D.LVL;
+
+  var seq = 0;
+
+  function center(cells) {
+    var x = 0, y = 0;
+    for (var i = 0; i < cells.length; i++) { x += cells[i].x; y += cells[i].y; }
+    return { x: x / cells.length, y: y / cells.length };
+  }
+
+  // 光环强度：等级每 +1 提升 40%（射程/金币这类整数光环不缩放）
+  function auraValue(def, level) {
+    var lv = Math.max(1, level || 1);
+    if (def.aura === 'range' || def.aura === 'gold') return def.value;
+    return def.value * (1 + 0.4 * (lv - 1));
+  }
+
+  function mkPiece(src, side, b) {
+    var def = src.def || D.pieceById(src.k);
+    if (!def) return null;
+    var m = side === 'p' ? b.modsP : b.modsO;
+    var pos = center(src.cells);
+    var p = {
+      id: src.id, k: src.k, def: def, level: src.level || 1, side: side,
+      cells: src.cells, c: src.cells[0].c, q: src.cells[0].q, r: src.cells[0].r,
+      x: pos.x, y: pos.y,
+      role: def.role, arc: !!def.arc,
+      structure: def.role === 'flag',   // 无血挂件：打不掉、不提供血量、只占格子
+      ench: src.ench ? D.ENCHANTS[src.ench].fx : null,
+      aura: {}, alive: true, cd: 0.2 + b.rng() * 0.6,
+      hitT: 0, healT: 0, shield: 0,
+      slowMul: 0, slowUntil: 0,
+      burnDps: 0, burnUntil: 0,
+      hasteUntil: 0,
+      stunned: 0,
+      skillDef: D.ULTS[def.id] || null,
+      skillT: 0,
+      canUlt: (src.level || 1) >= 3 && !!D.ROLE_ULT[def.role],
+      ultDef: ((src.level || 1) >= 3 ? D.ROLE_ULT[def.role] : null) || null,
+      ultT: 0, ultReady: false
+    };
+    pos.c = p.c; pos.r = p.r;
+    return p;
+  }
+
+  function sidesOf(b) {
+    return [{ list: b.p, m: b.modsP, side: 'p' }, { list: b.e, m: b.modsO, side: 'o' }];
+  }
+
+  // 一次算好「没有光环时」的数值，挂在 p.raw 上
+  function baseStats(b) {
+    var sides = sidesOf(b);
+    for (var s = 0; s < sides.length; s++) {
+      var list = sides[s].list, m = sides[s].m;
+      for (var i = 0; i < list.length; i++) {
+        var p = list[i], d = p.def, lv = LVL[p.level] || 1;
+        p.aura = { dmg: 0, spd: 0, hp: 0, range: 0, burn: 0, slow: 0, gold: 0, poison: 0 };
+        p.raw = {
+          hp: (p.structure ? 0 : (d.hp || 100)) * lv * (CFG.hpScale || 1) * (1 + (m.hp || 0)) * (d.role === 'tank' ? 1 + (m.tankHp || 0) : 1),
+          dmg: (d.dmg || 0) * lv * (1 + (m.dmgMul || 0)),
+          atkBase: (d.atk || 1.5),
+          spdMul: 1 + (m.spd || 0) + (d.arc ? (m.arcSpd || 0) : 0),
+          range: (d.range || 1) + (d.arc ? (m.arcRange || 0) : 0),
+          burn: (d.burn || 0) + (m.pieceBurn || 0),
+          slow: (d.slow || 0),
+          gold: (d.role === 'gold' ? 0 : (m.killGold || 0))
+        };
+        p.heal = (d.heal || 0) * lv * (1 + (m.healBoost || 0));
+        p.shieldAmt = (d.shield || 0) * lv;
+        p.goldAmt = (d.gold || 0);
+        p.targets = d.chain ? d.chain + 1 : 1;
+        p.pierce = d.pierce === true ? 1 : (d.pierce | 0);
+        p.splash = d.splash === true ? 1 : (d.splash | 0);
+        p.armor = (m.frontArmor && (p.r === (p.side === 'p' ? 4 : 3))) ? m.frontArmor : 0;
+        if (p.ench && p.ench.dmgTaken) p.armor = Math.max(p.armor, p.ench.dmgTaken);
+        applyAura(p);
+        p.maxHp = Math.round(p.maxHp);
+        p.hp = p.maxHp;
+      }
+    }
+  }
+
+  // 把光环增量套到基础值上
+  function applyAura(p) {
+    var a = p.aura, r = p.raw;
+    if (p.structure) { p.maxHp = 0; p.hp = 0; p.dmg = 0; p.atk = 999; p.range = 0; return; }
+    var ratio = p.maxHp ? Math.max(0, p.hp || 0) / p.maxHp : 1;
+    p.maxHp = Math.round(r.hp * (1 + a.hp));
+    if (p.maxHp < 1) p.maxHp = 1;
+    if (p.hp !== undefined) p.hp = Math.max(1, Math.min(p.maxHp, Math.round(p.maxHp * ratio)));
+    p.dmg = r.dmg * (1 + a.dmg);
+    p.atk = Math.max(0.25, r.atkBase / (r.spdMul + a.spd));
+    p.range = r.range + a.range;
+    p.burn = r.burn + a.burn;
+    p.slow = r.slow + a.slow;
+    p.poison = a.poison;
+    p.goldOnKill = r.gold + a.gold;
+  }
+
+  // 重新分配光环并刷新（阵旗死了，加成就没了）
+  function refreshAuras(b) {
+    var sides = sidesOf(b);
+    for (var s = 0; s < sides.length; s++) {
+      var list = sides[s].list, m = sides[s].m, i, j;
+      for (i = 0; i < list.length; i++) {
+        if (!list[i].aura) list[i].aura = { dmg: 0, spd: 0, hp: 0, range: 0, burn: 0, slow: 0, gold: 0, poison: 0 };
+        else {
+          for (var k in list[i].aura) if (list[i].aura.hasOwnProperty(k)) list[i].aura[k] = 0;
+        }
+      }
+      var byCell = {};
+      for (i = 0; i < list.length; i++) {
+        if (!list[i].alive) continue;
+        for (j = 0; j < list[i].cells.length; j++) byCell[MAP.key(list[i].cells[j].c, list[i].cells[j].r)] = list[i];
+      }
+      for (i = 0; i < list.length; i++) {
+        var src = list[i];
+        if (!src.alive || !src.def.aura) continue;
+        var val = auraValue(src.def, src.level) * (1 + (m.auraBoost || 0));
+        var touched = {};
+        for (j = 0; j < src.cells.length; j++) {
+          var nb = MAP.neighbors(src.cells[j].c, src.cells[j].r);
+          for (var n = 0; n < nb.length; n++) {
+            var tgt = byCell[MAP.key(nb[n].c, nb[n].r)];
+            if (!tgt || tgt === src || touched[tgt.id]) continue;
+            touched[tgt.id] = 1;
+            tgt.aura[src.def.aura] = (tgt.aura[src.def.aura] || 0) + val;
+          }
+        }
+      }
+      for (i = 0; i < list.length; i++) applyAura(list[i]);
+    }
+  }
+
+  function stats(b) {
+    baseStats(b);
+    refreshAuras(b);
+  }
+
+  /* ---------------- 创建 ---------------- */
+  function create(o) {
+    var b = {
+      id: ++seq,
+      t: 0,
+      day: o.day || 1,
+      rng: U.mulberry32((o.seed | 0) || 7),
+      modsP: o.modsP || {},
+      modsO: o.modsO || {},
+      factionP: o.factionP || 'dongwu',
+      factionO: o.factionO || 'dongwu',
+      p: [], e: [],
+      shots: [], floats: [], events: [],
+      status: 'run',
+      autoUlt: o.autoUlt !== false,
+      stats: { dmgP: 0, dmgO: 0, killsP: 0, killsO: 0, gold: 0 },
+      lastStandP: false, lastStandO: false
+    };
+    var i, piece;
+    for (i = 0; i < (o.piecesP || []).length; i++) {
+      piece = mkPiece(o.piecesP[i], 'p', b);
+      if (piece) b.p.push(piece);
+    }
+    for (i = 0; i < (o.piecesO || []).length; i++) {
+      piece = mkPiece(o.piecesO[i], 'o', b);
+      if (piece) b.e.push(piece);
+    }
+    stats(b);
+    return b;
+  }
+
+  /* ---------------- 目标 ---------------- */
+  function depthOf(b, p, e) { return p.side === 'p' ? e.r : (MAP.ROWS - 1 - e.r); }
+
+  function candidates(b, p) {
+    var list = p.side === 'p' ? b.e : b.p;
+    var living = [], i, e, d, minD = 99;
+    for (i = 0; i < list.length; i++) {
+      e = list[i];
+      if (!e.alive || e.structure) continue;
+      living.push(e);
+      d = Math.abs(p.r - e.r);
+      if (d < minD) minD = d;
+    }
+    if (!living.length) return [];
+    var out = [];
+    for (i = 0; i < living.length; i++) {
+      e = living[i];
+      d = Math.abs(e.r - p.r);
+      if (p.arc) {
+        // 抛射：越过前排，后排也够得到（不限距离）
+        out.push(e);
+      } else {
+        // 近战/长兵：最前排永远够得着；多出来的射程才能往深处扎
+        if (d - minD < p.range) out.push(e);
+      }
+    }
+    return out;
+  }
+
+  // 六边形距离（odd-r 偏移坐标 → 轴向）
+  function hexDist(a, z) {
+    var aq = a.c - Math.floor(a.r / 2), zq = z.c - Math.floor(z.r / 2);
+    var dq = aq - zq, dr = a.r - z.r;
+    return Math.max(Math.abs(dq), Math.abs(dr), Math.abs(dq + dr));
+  }
+
+  // 溅射：以命中点为中心扩一圈，按距离衰减，总体最多 splashCap 格
+  function splashTargets(b, p, e) {
+    var list = e.side === 'p' ? b.p : b.e;
+    var near = [];
+    for (var i = 0; i < list.length; i++) {
+      var a = list[i];
+      if (!a.alive || a === e || a.structure) continue;
+      var d = hexDist(e, a);
+      if (d <= p.splash) near.push({ u: a, d: d });
+    }
+    near.sort(function (x, z) { return x.d - z.d; });
+    var cap = Math.max(0, (CFG.splashCap || 3) - 1);
+    return near.slice(0, cap);
+  }
+
+  // 穿透：同列，沿「离自己更远」的方向再打 1~2 格
+  function pierceTargets(b, p, e) {
+    var list = e.side === 'p' ? b.p : b.e;
+    var dir = p.side === 'p' ? -1 : 1;   // 敌人越远，r 越「深」
+    var out = [], k, rr, a;
+    for (k = 1; k <= p.pierce; k++) {
+      rr = e.r + dir * k;
+      for (var i = 0; i < list.length; i++) {
+        a = list[i];
+        if (!a.alive || a === e || a.structure) continue;
+        if (a.r === rr && a.c === e.c) { out.push({ u: a, d: k }); break; }
+      }
+    }
+    return out;
+  }
+
+  function pickTargets(b, p) {
+    var c = candidates(b, p);
+    if (!c.length) return [];
+    c.sort(function (a, z) {
+      var dd = depthOf(b, p, z) - depthOf(b, p, a);
+      if (dd) return dd;
+      return Math.abs(a.c - p.c) - Math.abs(z.c - p.c);
+    });
+    // 非抛物线：打最靠前的；抛物线：打最靠后的
+    if (!p.arc) return c.slice(0, p.targets);
+    c.reverse();
+    return c.slice(0, p.targets);
+  }
+
+  function allyInRange(b, p) {
+    var list = p.side === 'p' ? b.p : b.e;
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      var a = list[i];
+      if (!a.alive || a === p || a.structure) continue;
+      if (Math.abs(p.r - a.r) <= p.range) out.push(a);
+    }
+    return out;
+  }
+
+  /* ---------------- 主循环 ---------------- */
+  function step(b, dt) {
+    if (b.status !== 'run') return;
+    if (dt > 0.05) dt = 0.05;
+    b.t += dt;
+
+    // 阵旗阵亡 → 光环立即消失
+    b.auraT = (b.auraT || 0) + dt;
+    if (b.auraT >= 0.25) {
+      b.auraT = 0;
+      var sig = 0;
+      for (var ai = 0; ai < b.p.length; ai++) if (b.p[ai].alive && b.p[ai].def.aura) sig++;
+      for (var bi = 0; bi < b.e.length; bi++) if (b.e[bi].alive && b.e[bi].def.aura) sig += 100;
+      if (sig !== b.auraSig) { b.auraSig = sig; refreshAuras(b); }
+    }
+
+    var rushP = b.t < 15 ? (b.modsP.openingRush || 0) : 0;
+    var rushO = b.t < 15 ? (b.modsO.openingRush || 0) : 0;
+
+    tick(b, b.p, dt, rushP, true);
+    tick(b, b.e, dt, rushO, false);
+
+    for (var i = b.shots.length - 1; i >= 0; i--) {
+      b.shots[i].t += dt;
+      if (b.shots[i].t >= b.shots[i].dur) b.shots.splice(i, 1);
+    }
+    for (var j = b.floats.length - 1; j >= 0; j--) {
+      b.floats[j].life -= dt;
+      if (b.floats[j].life <= 0) b.floats.splice(j, 1);
+    }
+
+    if (unitsLeft(b.p) === 0) { b.status = 'lose'; return; }
+    if (unitsLeft(b.e) === 0) { b.status = 'win'; return; }
+    if (b.t >= CFG.battleTime) {
+      var hpP = sumHp(b.p), hpO = sumHp(b.e);
+      b.status = hpP > hpO ? 'win' : (hpP < hpO ? 'lose' : 'draw');
+      if (b.status === 'draw') b.status = b.stats.dmgP >= b.stats.dmgO ? 'win' : 'lose';
+      b.timeUp = true;
+    }
+    // 背水一战：只剩最后一个棋子时攻速暴涨
+    if (!b.lastStandP && aliveCount(b.p) <= 1) { b.lastStandP = true; b.events.push({ type: 'laststand', side: 'p' }); }
+    if (!b.lastStandO && aliveCount(b.e) <= 1) { b.lastStandO = true; b.events.push({ type: 'laststand', side: 'o' }); }
+  }
+
+  function aliveCount(list) {
+    var n = 0;
+    for (var i = 0; i < list.length; i++) if (list[i].alive && !list[i].structure) n++;
+    return n;
+  }
+
+  // 全队是否只剩挂件（用来判定胜负）
+  function unitsLeft(list) {
+    var n = 0;
+    for (var i = 0; i < list.length; i++) if (list[i].alive && !list[i].structure) n++;
+    return n;
+  }
+
+  function sumHp(list) {
+    var s = 0;
+    for (var i = 0; i < list.length; i++) if (list[i].alive) s += Math.max(0, list[i].hp);
+    return s;
+  }
+
+  function tick(b, list, dt, rush, isP) {
+    var m = isP ? b.modsP : b.modsO;
+    var lastStand = isP ? b.lastStandP : b.lastStandO;
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i];
+      if (!p.alive) continue;
+      p.hitT = Math.max(0, p.hitT - dt * 3);
+      p.healT = Math.max(0, p.healT - dt * 2);
+
+      if (p.burnUntil > b.t) hurt(b, p, p.burnDps * dt, true);
+      if (!p.alive) continue;
+      if (p.stunned > 0) { p.stunned -= dt; continue; }
+      if (p.def.role === 'flag') continue;
+
+      var haste = p.hasteUntil > b.t ? (1 + 0.35) : 1;
+      var slow = p.slowUntil > b.t ? (1 + p.slowMul) : 1;
+      var ls = lastStand ? (1 + CFG.lastStandBonus) : 1;
+      if (p.skillDef) {
+        p.skillT += dt * haste / ((p.skillDef.cd || 10) * 0.55);
+        if (p.skillT >= 1) { p.skillT = 0; cast(b, p, p.skillDef, 'skill'); }
+      }
+      if (p.ultDef) {
+        if (!p.ultReady) {
+          p.ultT += dt * haste / (p.ultDef.cd || 18);
+          if (p.ultT >= 1) {
+            p.ultT = 1; p.ultReady = true;
+            b.events.push({ type: 'ultready', x: p.x, y: p.y, side: p.side });
+          }
+        } else if (b.autoUlt) {
+          p.ultReady = false; p.ultT = 0;
+          cast(b, p, p.ultDef, 'ult');
+        }
+      }
+      p.cd -= dt * haste * ls / slow;
+
+      if (p.cd > 0) continue;
+      p.cd = p.atk;
+      act(b, p, isP, m);
+    }
+  }
+
+  function act(b, p, isP, m) {
+    var role = p.def.role;
+    if (role === 'heal') {
+      var allies = allyInRange(b, p).filter(function (a) { return a.hp < a.maxHp; });
+      if (!allies.length) return;
+      allies.sort(function (a, z) { return (a.hp / a.maxHp) - (z.hp / z.maxHp); });
+      var t = allies[0];
+      t.hp = Math.min(t.maxHp, t.hp + p.heal);
+      t.healT = 1;
+      b.events.push({ type: 'heal', x1: p.x, y1: p.y, x2: t.x, y2: t.y, side: p.side });
+      b.floats.push({ x: t.x, y: t.y, v: '+' + Math.round(p.heal), life: 0.7, good: true });
+      return;
+    }
+    if (role === 'support' && p.def.shield) {
+      var a2 = allyInRange(b, p);
+      if (!a2.length) return;
+      for (var i = 0; i < a2.length; i++) a2[i].shield = Math.min(a2[i].maxHp * 0.6, a2[i].shield + p.shieldAmt);
+      b.events.push({ type: 'shield', x: p.x, y: p.y, r: p.range, side: p.side });
+      return;
+    }
+    if (role === 'support' && p.def.haste) {
+      var a3 = allyInRange(b, p);
+      for (var j = 0; j < a3.length; j++) a3[j].hasteUntil = b.t + 3;
+      b.events.push({ type: 'haste', x: p.x, y: p.y, r: p.range, side: p.side });
+      return;
+    }
+    if (role === 'gold') {
+      b.stats.gold += p.goldAmt;
+      b.events.push({ type: 'gold', x: p.x, y: p.y, n: p.goldAmt });
+      return;
+    }
+
+    var tg = pickTargets(b, p);
+    if (!tg.length) { p.cd = Math.min(p.cd, p.atk * 0.35); return; }
+
+    for (var k = 0; k < tg.length; k++) {
+      var e = tg[k];
+      b.shots.push({
+        x1: p.x, y1: p.y, x2: e.x, y2: e.y,
+        t: 0, dur: p.arc ? 0.26 : 0.16,
+        arc: p.arc, kind: p.def.ch, side: p.side,
+        mul: k === 0 ? 1 : 0.75
+      });
+      hit(b, p, e, p.dmg * (k === 0 ? 1 : 0.75), isP);
+
+      var extra = [], n;
+      if (p.pierce) extra = extra.concat(pierceTargets(b, p, e));
+      if (p.splash) extra = extra.concat(splashTargets(b, p, e));
+      for (n = 0; n < extra.length; n++) {
+        var tbl = p.splash ? (CFG.splashMul || [1, 0.5, 0.28]) : (CFG.pierceMul || [1, 0.6, 0.38]);
+        var mul = tbl[Math.min(extra[n].d, tbl.length - 1)] || 0.25;
+        hit(b, p, extra[n].u, p.dmg * mul * (k === 0 ? 1 : 0.75), isP);
+      }
+    }
+  }
+
+  function hit(b, p, e, dmg, isP) {
+    if (!e.alive) return;
+    hurt(b, e, dmg, false, p);
+    if (p.burn > 0) { e.burnDps = Math.max(e.burnDps, dmg * p.burn); e.burnUntil = Math.max(e.burnUntil, b.t + 2.5); }
+    if (p.slow > 0) { e.slowMul = p.slow; e.slowUntil = Math.max(e.slowUntil, b.t + 2.5); }
+    if (p.poison > 0) { e.burnDps = Math.max(e.burnDps, dmg * p.poison); e.burnUntil = Math.max(e.burnUntil, b.t + 2.5); }
+    if (p.ench) {
+      if (p.ench.burn) { e.burnDps = Math.max(e.burnDps, dmg * p.ench.burn); e.burnUntil = Math.max(e.burnUntil, b.t + 2.5); }
+      if (p.ench.slow) { e.slowMul = p.ench.slow; e.slowUntil = Math.max(e.slowUntil, b.t + 2.5); }
+      if (p.ench.chain && b.rng() < p.ench.chain) {
+        var near = alliesAround(b, e, 1.6);
+        if (near.length) hurt(b, near[0], dmg * 0.5, false, p);
+      }
+    }
+    if (isP) b.stats.dmgP += dmg; else b.stats.dmgO += dmg;
+    if (b.floats.length < 24) b.floats.push({ x: e.x, y: e.y, v: Math.round(dmg), life: 0.55 });
+  }
+
+  function alliesAround(b, e, radius) {
+    var list = e.side === 'p' ? b.p : b.e;
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      var a = list[i];
+      if (!a.alive || a === e || a.structure) continue;
+      if (Math.abs(e.r - a.r) <= radius) out.push(a);
+    }
+    return out;
+  }
+
+  function hurt(b, t, dmg, dot, from) {
+    if (!t.alive) return;
+    var real = dmg * (1 - (t.armor || 0));
+    if (t.shield > 0) {
+      var ab = Math.min(t.shield, real);
+      t.shield -= ab;
+      real -= ab;
+    }
+    t.hp -= real;
+    if (t.canUlt && !t.ultReady) t.ultT = Math.min(1, t.ultT + dmg * 0.0004);
+    if (!dot) t.hitT = 1;
+    if (t.hp <= 0) {
+      t.hp = 0;
+      t.alive = false;
+      if (t.side === 'p') b.stats.killsO++; else b.stats.killsP++;
+      b.events.push({ type: 'kill', x: t.x, y: t.y, ch: t.def.ch, side: t.side });
+      if (from && from.goldOnKill && b.stats.gold < 15) b.stats.gold += from.goldOnKill;
+    }
+  }
+
+  function cast(b, p, u, tag) {
+    if (!p.alive) return;
+    var i, a, e;
+    function done(kind) { b.events.push({ type: tag, x: p.x, y: p.y, kind: kind, n: u.name }); }
+
+    if (u.kind === 'gold') { b.stats.gold += u.v; done('gold'); return; }
+    if (u.kind === 'heal') {
+      for (i = 0; i < b.p.length; i++) {
+        a = b.p[i]; if (!a.alive) continue;
+        a.hp = Math.min(a.maxHp, a.hp + a.maxHp * u.v); a.healT = 1;
+      }
+      done('heal'); return;
+    }
+    if (u.kind === 'shield') {
+      for (i = 0; i < b.p.length; i++) {
+        a = b.p[i]; if (!a.alive) continue;
+        a.shield = Math.min(a.maxHp * 0.8, a.shield + a.maxHp * u.v);
+      }
+      done('shield'); return;
+    }
+    if (u.kind === 'haste') {
+      for (i = 0; i < b.p.length; i++) {
+        a = b.p[i]; if (!a.alive) continue;
+        a.hasteUntil = b.t + u.dur;
+      }
+      done('haste'); return;
+    }
+    if (u.kind === 'slow') {
+      for (i = 0; i < b.e.length; i++) {
+        e = b.e[i]; if (!e.alive || e.structure) continue;
+        e.slowMul = u.v; e.slowUntil = b.t + u.dur;
+      }
+      done('slow'); return;
+    }
+    var list = [];
+    var foe = p.side === 'p' ? b.e : b.p;
+    for (i = 0; i < foe.length; i++) {
+      e = foe[i];
+      if (!e.alive || e.structure) continue;
+      if (u.kind !== 'rear' && Math.abs(p.r - e.r) > p.range) continue;
+      list.push(e);
+    }
+    list.sort(function (x, y) { return u.kind === 'rear' ? x.r - y.r : y.r - x.r; });
+    var n = u.n || list.length;
+    for (i = 0; i < list.length && i < n; i++) {
+      e = list[i];
+      b.shots.push({ x1: p.x, y1: p.y, x2: e.x, y2: e.y, t: 0, dur: 0.24, arc: true, kind: p.def.ch, side: p.side, mul: 1 });
+      hit(b, p, e, p.dmg * u.v * 0.5, p.side === 'p');
+      if (u.stun) e.stunned = Math.max(e.stunned || 0, u.stun);
+      if (u.burn) { e.burnDps = Math.max(e.burnDps, p.dmg * 0.35); e.burnUntil = Math.max(e.burnUntil, b.t + 3); }
+    }
+    done('dmg');
+  }
+
+  function useUlt(b, piece) {
+    if (b.status !== 'run' || !piece) return false;
+    var p = null;
+    for (var i = 0; i < b.p.length; i++) if (b.p[i].id === piece.id) p = b.p[i];
+    if (!p || !p.alive || !p.canUlt || !p.ultReady) return false;
+    p.ultReady = false; p.ultT = 0;
+    cast(b, p, p.ultDef, 'ult');
+    return true;
+  }
+
+  GB.Battle = {
+    create: create,
+    step: step,
+    auraValue: auraValue,
+    useUlt: useUlt,
+    sumHp: sumHp,
+    aliveCount: aliveCount,
+    unitsLeft: unitsLeft,
+    center: function (p) { return { x: p.x, y: p.y }; }
+  };
+}(typeof window !== 'undefined' ? window : globalThis));
