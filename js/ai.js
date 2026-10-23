@@ -27,9 +27,13 @@
     });
   }
 
-  /* 对手的一回合：开书 → 扩建 → 买子 → 合成 → 上阵（和玩家做的事一样） */
+  /* 对手的一回合：开书 → 领赏金 → 扩建 → 买子 → 合成 → 上阵（和玩家做的事一样） */
   function aiTurn(run, rnd) {
     var i, j;
+
+    // 胜负赏金：玩家赢一场拿 4 + ⌊day/2⌋ 金，对手按赢一半折算
+    var bounty = Math.floor((4 + Math.floor(run.day / 2)) / 2);
+    run.gold += bounty;
 
     // 兵书三选一
     if (run.bookOffer && run.bookOffer.length && !GB.Run.skillFull(run)) {
@@ -38,10 +42,10 @@
       GB.Run.chooseBook(run, pick, Math.min(GB.Run.skillTierMax(run), (sk && sk.tier) || 1));
     }
 
-    // 扩建：留着 6 金买棋子
+    // 扩建：留 3 金买棋子，一回合最多铺两块
     for (i = 0; i < 2; i++) {
       var price = GB.Run.nextCellPrice(run);
-      if (!price || run.gold < price + 6) break;
+      if (!price || run.gold < price + 3) break;
       var own = GB.Run.ownedSet(run);
       var spot = null, list = MAP.playerCells();
       for (j = 0; j < list.length; j++) {
