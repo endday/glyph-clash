@@ -1,17 +1,286 @@
-/* ai.js — 幽灵对手：和玩家用同一套规则跑一遍（同经济、同格子、同商店、同合成）
-   不再给免费属性、免费等级或超大棋盘：对手的强度来自它的「打法」，不是暗改数值。 */
+/* ai.js — 幽灵对手：和玩家同一套规则跑一局，但每一步都做「搜索出来的最优解」
+   决策顺序：开书 → 扩建 → 买子 → 合成 → 选流派 → 摆位，全部由 evalBoard() 打分决定。
+   不做的事：不给免费属性、不给免费等级、不给更大的棋盘。 */
 (function (root) {
   'use strict';
   var GB = root.GB = root.GB || {};
   var D = GB.D, MAP = GB.MAP, U = GB.U;
 
-  // 只用来取名字的阵营风味（没有任何数值作用）
   var NAMES = ['无名阵', '虎豹骑', '连弩营', '长枪阵', '药王谷', '火神庙',
                '三连射', '五虎将', '铁壁营', '双骑冲', '雷池', '空营计'];
 
   var simulating = 0;
+  var HP_SCALE = 1.6;
 
-  /* 把「我方半场」摆好的阵镜像到对面（8 行 → r' = 7 - r） */
+  /* ---------------- 棋子价值 ---------------- */
+  function stats(def, level, run) {
+    var m = GB.Run.mods(run);
+    var lv = level || 1;
+    var hp = (def.hp || 0) * lv * HP_SCALE * (1 + (m.hp || 0));
+    var dps = def.dmg ? (def.dmg * lv * (1 + (m.dmgMul || 0))) / (def.atk || 1.5) : 0;
+    if (def.splash) dps *= 1.55;
+    if (def.pierce) dps *= 1.30;
+    if (def.arc) dps *= 1.10;
+    var heal = def.heal ? (def.heal * lv) / (def.atk || 1.5) : 0;
+    var shield = (def.shield || 0) * lv;
+    return { hp: hp, dps: dps, heal: heal, shield: shield, size: def.size || 1 };
+  }
+
+  function adjacent(a, b) {
+    if (!a.cells || !b.cells || !a.cells.length || !b.cells.length) return false;
+    for (var i = 0; i < a.cells.length; i++) {
+      var nb = MAP.neighbors(a.cells[i].c, a.cells[i].r);
+      for (var j = 0; j < b.cells.length; j++) {
+        for (var k = 0; k < nb.length; k++) {
+          if (nb[k].c === b.cells[j].c && nb[k].r === b.cells[j].r) return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /* ---------------- 阵容强度分 ---------------- */
+  function evalBoard(run, board) {
+    var i, j;
+    var units = [], hitRate = 0, teamHp = 0, big = 0, lvl3 = 0;
+    for (i = 0; i < board.length; i++) {
+      var p = board[i];
+      var def = D.pieceById(p.k);
+      if (!def) continue;
+      var st = stats(def, p.level, run);
+      units.push({ p: p, def: def, st: st });
+      if (def.role !== 'flag' && def.role !== 'shard') {
+        teamHp += st.hp;
+        if ((def.size || 1) >= 4) big++;
+        if ((p.level || 1) >= 3) lvl3++;
+      }
+    }
+    for (i = 0; i < units.length; i++) {
+      if (units[i].def.dmg) hitRate += (units[i].p.level || 1) / (units[i].def.atk || 1.5);
+    }
+
+    var total = 0;
+    for (i = 0; i < units.length; i++) {
+      var a = units[i], def2 = a.def, st2 = a.st;
+      var v = st2.hp * 0.5 + st2.dps * 9 + st2.heal * 26 + st2.shield * 2.2;
+      var mult = 1;
+
+      if (def2.role === 'flag' || def2.role === 'shard') {
+        // 引擎：必须贴着「能打的人」才值钱
+        var near = 0;
+        for (j = 0; j < units.length; j++) {
+          if (units[j] === a || units[j].def.role === 'flag') continue;
+          if (a.p.cells && a.p.cells.length && adjacent(a.p, units[j].p)) near += units[j].st.dps;
+        }
+        var kind = def2.on ? Object.keys(def2.on)[0] : '';
+        if (def2.aura) mult = 0.5 + Math.min(2.0, near / 260);
+        else if (kind === 'burn_tick') mult = 0.4 + Math.min(2.2, near / 220);
+        else if (kind === 'hit') mult = 0.8 + Math.min(1.8, hitRate * 0.35);
+        else if (kind === 'trigger') mult = 0.8 + Math.min(1.6, hitRate * 0.30);
+        else mult = 0.6 + Math.min(1.6, near / 260);
+        v = 260 * mult;
+      } else if (def2.heal) {
+        v = st2.hp * 0.5 + st2.heal * 26 * (1 + Math.min(1.5, teamHp / 4000));
+      }
+      total += v * mult;
+    }
+
+    var has = function (id) { return GB.Run.hasSkill(run, id); };
+    if (has('changqu')) total *= 1 + 0.06 * big;
+    if (has('poshu')) total *= 1 + 0.08 * lvl3;
+    if (has('beishui') && units.length <= 4) total *= 1.20;
+    if (has('tiebi')) total *= 1.06;
+    if (has('jifeng')) total *= 1 + Math.min(0.25, hitRate * 0.05);
+    if (has('lianu')) total *= 1.08;
+    return total;
+  }
+
+  /* ---------------- 摆位搜索：逐颗试所有位置，取全队分最高的 ---------------- */
+  function bestLayout(run, pieces) {
+    var cells = MAP.playerCells();
+    var owned = GB.Run.ownedSet(run);          // 只能摆在已解锁的格子上
+    var occ = {}, placed = [], order = pieces.slice();
+    order.sort(function (a, b) {
+      var da = D.pieceById(a.k), db = D.pieceById(b.k);
+      return ((db ? db.size : 1) - (da ? da.size : 1)) || ((db ? db.price : 0) - (da ? da.price : 0));
+    });
+    for (var i = 0; i < order.length; i++) {
+      var p = order[i], def = D.pieceById(p.k);
+      if (!def) continue;
+      var rows = MAP.rowsFor('p', def.role);
+      var best = null, bestScore = -1;
+      for (var ri = 0; ri < rows.length; ri++) {
+        for (var ci = 0; ci < cells.length; ci++) {
+          var c = cells[ci];
+          if (c.r !== rows[ri]) continue;
+          var res = MAP.findPlacement(occ, c.c, c.r, def.size, 'p', owned);
+          if (!res) continue;
+          var cand = placed.concat([{ k: p.k, level: p.level, cells: res.cells }]);
+          var sc = evalBoard(run, cand);
+          if (sc > bestScore) { bestScore = sc; best = res.cells; }
+        }
+      }
+      if (best) {
+        for (var bi = 0; bi < best.length; bi++) occ[MAP.key(best[bi].c, best[bi].r)] = true;
+        placed.push({ k: p.k, level: p.level, cells: best });
+      }
+    }
+    return placed;
+  }
+
+  /* 把搜索出来的摆位落到 run 上 */
+  function applyLayout(run, layout) {
+    // 只清占位、不删棋子：清空 run.board，再按搜索出来的布局逐个 placeAt
+    var all = GB.Run.allPieces(run);
+    run.board = {};
+    for (var i = 0; i < all.length; i++) all[i].cells = [];
+    var used = {};
+    for (var L = 0; L < layout.length; L++) {
+      var want = layout[L], pick = null;
+      for (i = 0; i < all.length; i++) {
+        var ap = all[i];
+        if (used[ap.id]) continue;
+        if (ap.k === want.k && (ap.level || 1) === (want.level || 1)) { pick = ap; break; }
+      }
+      if (!pick) continue;
+      used[pick.id] = 1;
+      GB.Run.placeAt(run, pick, want.cells[0].c, want.cells[0].r);
+    }
+  }
+
+  function bookMult(id, run) {
+    var pieces = GB.Run.allPieces(run);
+    var units = 0, big = 0, lvl3 = 0, arc = 0, heal = 0;
+    for (var i = 0; i < pieces.length; i++) {
+      var def = D.pieceById(pieces[i].k) || {};
+      if (def.role === 'flag') continue;
+      units++;
+      if ((def.size || 1) >= 4) big++;
+      if ((pieces[i].level || 1) >= 3) lvl3++;
+      if (def.arc) arc++;
+      if (def.heal) heal++;
+    }
+    if (id === 'changqu') return 1 + 0.12 * big;
+    if (id === 'poshu') return 1 + 0.16 * lvl3;
+    if (id === 'beishui') return units <= 4 ? 1.40 : 1.0;
+    if (id === 'kongcheng') return 1 + 0.08 * Math.min(6, Math.max(0, GB.Run.cellsN(run) - GB.Run.cellsUsed(run)));
+    if (id === 'tiebi') return 1.22;
+    if (id === 'zuofeng') return 1.18;
+    if (id === 'lianu') return 1 + 0.12 * Math.min(3, arc);
+    if (id === 'jifeng') return 1.15;
+    if (id === 'liaoyuan') return 1.12;
+    if (id === 'miaoshou') return heal ? 1.25 : 1.02;
+    if (id === 'jiejian') return 1.20;
+    if (id === 'tuntian') return 1.10;
+    if (id === 'cangbing') return 1.12;
+    if (id === 'tianji') return 1.14;
+    if (id === 'caochuan') return 1.16;
+    if (id === 'wenjiu') return 1.04;
+    return 1.05;
+  }
+
+  /* ---------------- 一回合：全部走搜索 ---------------- */
+  function aiTurn(run, rnd) {
+    var i, j;
+
+    // 1) 兵书：把每本的效果折成系数，取增益最大的
+    if (run.bookOffer && run.bookOffer.length && !GB.Run.skillFull(run)) {
+      var base = evalBoard(run, bestLayout(run, GB.Run.allPieces(run)));
+      var bestBook = null, bestGain = -1;
+      for (i = 0; i < run.bookOffer.length; i++) {
+        var gain = base * bookMult(run.bookOffer[i], run) - base;
+        if (gain > bestGain) { bestGain = gain; bestBook = run.bookOffer[i]; }
+      }
+      if (bestBook) {
+        var sk2 = D.skillById(bestBook);
+        GB.Run.chooseBook(run, bestBook, Math.min(GB.Run.skillTierMax(run), (sk2 && sk2.tier) || 1));
+      }
+    }
+
+    // 2) 赏金（按「赢了」算：它代表一个打得不错的幽灵）
+    run.gold += 4 + Math.floor(run.day / 2);
+
+    // 3) 扩建：摆不下或格子快满才铺，留 2 金买子
+    for (i = 0; i < 2; i++) {
+      var price = GB.Run.nextCellPrice(run);
+      if (!price || run.gold < price + 2) break;
+      var benchN = run.bench.filter(Boolean).length;
+      var used = GB.Run.cellsUsed(run), cap = GB.Run.cellsN(run);
+      if (!(benchN > 0 || used >= cap - 1)) break;
+      var own = GB.Run.ownedSet(run), spot = null, list = MAP.playerCells();
+      for (j = 0; j < list.length; j++) {
+        if (!own[MAP.key(list[j].c, list[j].r)] && GB.Run.canUnlock(run, list[j].c, list[j].r)) { spot = list[j]; break; }
+      }
+      if (!spot) break;
+      GB.Run.unlockCell(run, spot.c, spot.r);
+    }
+
+    // 4) 买子：逐个试「买下并重新摆位」的增益，按性价比买
+    var guard = 0;
+    while (guard++ < 6) {
+      if (GB.Run.freeBenchSlot(run) < 0) break;
+      var cur = GB.Run.allPieces(run);
+      var curScore = evalBoard(run, bestLayout(run, cur));
+      var offers = (run.offers || []).filter(function (o) {
+        return o.type === 'piece' && !o.sold && run.gold >= o.price;
+      });
+      if (!offers.length) break;
+      var bestOffer = null, bestValue = 0;
+      for (i = 0; i < offers.length; i++) {
+        if (!D.pieceById(offers[i].k)) continue;
+        var cand = cur.concat([{ k: offers[i].k, level: 1, cells: [] }]);
+        var gain2 = evalBoard(run, cand) - curScore;
+        var value = gain2 / Math.max(1, offers[i].price);
+        if (gain2 > 0 && value > bestValue) { bestValue = value; bestOffer = offers[i]; }
+      }
+      if (!bestOffer) break;
+      if (!GB.Shop.buy(run, bestOffer).ok) break;
+    }
+
+    // 5) 合成：只在「合完更强」时合
+    var merged = true, mg = 0;
+    while (merged && mg++ < 30) {
+      merged = false;
+      var all = GB.Run.allPieces(run);
+      var boardNow = GB.Run.allPieces(run);
+      var baseScore = evalBoard(run, bestLayout(run, boardNow));
+      for (i = 0; i < all.length && !merged; i++) {
+        for (j = i + 1; j < all.length; j++) {
+          if (!GB.Run.canMerge(all[i], all[j])) continue;
+          var after = boardNow.filter(function (x) { return x !== all[j]; }).map(function (x) {
+            return x === all[i]
+              ? { k: x.k, level: (x.level || 1) + 1, cells: [] }
+              : { k: x.k, level: x.level, cells: [] };
+          });
+          if (evalBoard(run, after) >= baseScore) { GB.Run.mergeInto(run, all[i], all[j]); merged = true; }
+          break;
+        }
+      }
+    }
+
+    // 6) 流派：选让阵容分最高的那一支
+    guard = 0;
+    while (guard++ < 10) {
+      var pend = GB.Run.pendingEvo(run);
+      if (!pend) break;
+      var opts = GB.Run.evoChoices ? GB.Run.evoChoices(pend) : [];
+      if (!opts.length) { pend.pendingEvo = false; break; }
+      var bestOpt = opts[0], bestSc = -1;
+      for (i = 0; i < opts.length; i++) {
+        var saved = pend.evos ? pend.evos.slice() : [];
+        pend.evos = saved.concat([opts[i].id]);
+        var sc3 = evalBoard(run, bestLayout(run, GB.Run.allPieces(run)));
+        pend.evos = saved;
+        if (sc3 > bestSc) { bestSc = sc3; bestOpt = opts[i]; }
+      }
+      GB.Run.chooseEvo(run, pend, bestOpt.id);
+    }
+
+    // 7) 摆位
+    applyLayout(run, bestLayout(run, GB.Run.allPieces(run)));
+  }
+
+  /* ---------------- 镜像到对面 ---------------- */
   function mirror(pieces) {
     return pieces.map(function (p) {
       var out = {
@@ -28,138 +297,9 @@
     });
   }
 
-  /* 对手的一回合：开书 → 领赏金 → 扩建 → 买子 → 合成 → 上阵（和玩家做的事一样） */
-  function aiTurn(run, rnd) {
-    var i, j;
-
-    // 胜负赏金：玩家赢一场拿 4 + ⌊day/2⌋ 金。对手按「赢了」算——
-    // 它代表的是一个打得不错的幽灵，不是「输一半」的幽灵
-    run.gold += 4 + Math.floor(run.day / 2);
-
-    // 水平档：前 3 天打得松（少买、留钱），第 4 天起收紧
-    var tight = run.day >= 4;
-    var buyCap = tight ? 4 : 2;
-    var keepGold = tight ? 2 : 6;
-
-    // 兵书三选一：按自己阵型挑一本（有脑子，但不作弊）
-    if (run.bookOffer && run.bookOffer.length && !GB.Run.skillFull(run)) {
-      var mine = GB.Run.boardPieces(run);
-      var big = 0, lvl3 = 0, arc = 0, heal = 0, units = 0;
-      for (var mi = 0; mi < mine.length; mi++) {
-        var md = D.pieceById(mine[mi].k) || {};
-        if (md.role === 'flag') continue;
-        units++;
-        if ((md.size || 1) >= 4) big++;
-        if ((mine[mi].level || 1) >= 3) lvl3++;
-        if (md.arc) arc++;
-        if (md.heal) heal++;
-      }
-      function bookScore(id) {
-        if (id === 'changqu') return big * 2;
-        if (id === 'poshu') return lvl3 * 2;
-        if (id === 'lianu') return arc * 2;
-        if (id === 'miaoshou') return heal * 3;
-        if (id === 'beishui') return units <= 4 ? 4 : 0;
-        if (id === 'kongcheng') return Math.max(0, 10 - units);
-        if (id === 'tiebi' || id === 'jifeng') return 2;
-        if (id === 'tuntian' || id === 'cangbing') return 3;   // 经济类先拿
-        return 1;
-      }
-      var bestId = run.bookOffer[0], bestScore = -1;
-      for (var bi2 = 0; bi2 < run.bookOffer.length; bi2++) {
-        var sc = bookScore(run.bookOffer[bi2]);
-        if (sc > bestScore) { bestScore = sc; bestId = run.bookOffer[bi2]; }
-      }
-      var sk = D.skillById(bestId);
-      GB.Run.chooseBook(run, bestId, Math.min(GB.Run.skillTierMax(run), (sk && sk.tier) || 1));
-    }
-
-    // 扩建：留 3 金买棋子，一回合最多铺两块
-    for (i = 0; i < 2; i++) {
-      var price = GB.Run.nextCellPrice(run);
-      if (!price || run.gold < price + keepGold) break;
-      var own = GB.Run.ownedSet(run);
-      var spot = null, list = MAP.playerCells();
-      for (j = 0; j < list.length; j++) {
-        if (!own[MAP.key(list[j].c, list[j].r)] && GB.Run.canUnlock(run, list[j].c, list[j].r)) { spot = list[j]; break; }
-      }
-      if (!spot) break;
-      GB.Run.unlockCell(run, spot.c, spot.r);
-    }
-
-    // 买棋子：优先补同名（好合成），否则买最贵的
-    for (i = 0; i < buyCap; i++) {
-      if (GB.Run.freeBenchSlot(run) < 0) break;
-      var offers = (run.offers || []).filter(function (o) {
-        return o.type === 'piece' && !o.sold && run.gold >= o.price + 3;
-      });
-      if (!offers.length) break;
-      var owned = {};
-      GB.Run.allPieces(run).forEach(function (p) { owned[p.k] = (owned[p.k] || 0) + 1; });
-      var dup = offers.filter(function (o) { return owned[o.k]; });
-      var pickOffer;
-      if (dup.length && rnd() < 0.65) pickOffer = dup[0];
-      else {
-        offers.sort(function (a, z) {
-          return (D.pieceById(z.k).price || 0) - (D.pieceById(a.k).price || 0);
-        });
-        pickOffer = offers[0];
-      }
-      var res = GB.Shop.buy(run, pickOffer);
-      if (!res || !res.ok) break;
-    }
-
-    // 合成（能合就合）
-    var merged = true, guard = 0;
-    while (merged && guard++ < 30) {
-      merged = false;
-      var all = GB.Run.allPieces(run);
-      outer: for (i = 0; i < all.length; i++) {
-        for (j = i + 1; j < all.length; j++) {
-          if (GB.Run.canMerge(all[i], all[j])) {
-            GB.Run.mergeInto(run, all[i], all[j]);
-            merged = true;
-            break outer;
-          }
-        }
-      }
-    }
-    // 进化也照选（随机，不挑）
-    guard = 0;
-    while (guard++ < 10) {
-      var pend = GB.Run.pendingEvo(run);
-      if (!pend) break;
-      var opts = GB.Run.evoChoices ? GB.Run.evoChoices(pend) : (D.evoOptions(pend.k) || []);
-      if (!opts.length) { pend.pendingEvo = false; break; }
-      // 优先「加伤害/加攻速」的那一支，其次按表里顺序
-      var score = { fast: 3, heavy: 2, rapid: 3, sunder: 2, blaze: 3, storm: 3,
-                    pierce: 2, loud: 2, urgent: 3, long: 2, gale: 2, precise: 2, link: 2,
-                    wall: 1, swift: 2, armor: 1, wide: 1, firstaid: 1, deep: 2, fork: 2 };
-      var best = opts[0];
-      for (var oi = 1; oi < opts.length; oi++) {
-        if ((score[opts[oi].id] || 0) > (score[best.id] || 0)) best = opts[oi];
-      }
-      GB.Run.chooseEvo(run, pend, best.id);
-    }
-
-    // 上阵：按角色分行（近战在前、远程在后）
-    run.bench.filter(Boolean).forEach(function (p) {
-      var def = D.pieceById(p.k) || {};
-      var rows = MAP.rowsFor('p', def.role);
-      var cells = MAP.playerCells();
-      var placed = false;
-      for (var q = 0; q < rows.length && !placed; q++) {
-        for (var k = 0; k < cells.length; k++) {
-          if (cells[k].r !== rows[q]) continue;
-          if (GB.Run.placeAt(run, p, cells[k].c, cells[k].r)) { placed = true; break; }
-        }
-      }
-    });
-  }
-
-  /* 造对手：从第 1 天开始，用和玩家一样的规则打到第 day 天 */
+  /* ---------------- 造对手 ---------------- */
   function makeOpponent(day, seed) {
-    if (simulating) return null;      // 模拟自己时不要再造对手（防递归）
+    if (simulating) return null;
     simulating++;
     try {
       var rnd = U.mulberry32(((seed | 0) + day * 7919) >>> 0);
@@ -168,14 +308,15 @@
 
       var run = GB.Run.newRun((seed | 0) + day * 131, fac);
       run.opp = null;
-      aiTurn(run, rnd);                       // 第 1 天
+      aiTurn(run, rnd);
       for (var d = 1; d < day; d++) {
-        run.day++;                            // 推进天数（解锁表、兵书位、货架都看它）
-        GB.Run.startDay(run, false);          // 发收入、开兵书位、刷新货架
+        run.day++;
+        GB.Run.startDay(run, false);
+        run.opp = null;
         aiTurn(run, rnd);
       }
 
-      var pieces = mirror(GB.Run.boardPieces(run));
+      var pieces = mirror(GB.Run.boardPieces(run));   // 只镜像上阵的（备战席没有格子）
       var f = D.FACTIONS[fac];
       return {
         name: NAMES[(day + (seed | 0)) % NAMES.length],
@@ -184,11 +325,8 @@
         pieces: pieces,
         books: (run.skills || []).slice(),
         cellsN: GB.Run.cellsN(run),
-        mods: GB.Run.mods(run),               // 只带它自己买到的兵书效果
-        power: pieces.reduce(function (a, x) {
-          var def = D.pieceById(x.k);
-          return a + (x.level || 1) * (def ? def.size : 1);
-        }, 0)
+        mods: GB.Run.mods(run),
+        power: Math.round(evalBoard(run, GB.Run.boardPieces(run)))
       };
     } finally {
       simulating--;
@@ -208,6 +346,8 @@
   GB.AI = {
     makeOpponent: makeOpponent,
     gridFrom: gridFrom,
-    mirror: mirror
+    mirror: mirror,
+    evalBoard: evalBoard,
+    bestLayout: bestLayout
   };
 }(typeof window !== 'undefined' ? window : globalThis));
