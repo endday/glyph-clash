@@ -218,14 +218,28 @@
     while (run.bench.length < n) run.bench.push(null);
   }
 
-  function freeBenchSlot(run) {
-    syncBench(run);
-    for (var i = 0; i < run.bench.length; i++) if (!run.bench[i]) return i;
-    return -1;
+  // 备战席按「格」算容量：棋子占它真实的格数
+  function benchUsed(run) {
+    var n = 0;
+    for (var i = 0; i < run.bench.length; i++) {
+      var p = run.bench[i];
+      if (!p) continue;
+      var d = p.def || D.pieceById(p.k);
+      n += (d && d.size) || 1;
+    }
+    return n;
   }
+  function benchFree(run) { return benchSlots(run) - benchUsed(run); }
+  // 兼容旧调用：还有空位就返回真值
+  function freeBenchSlot(run) { return benchFree(run) > 0 ? 0 : -1; }
 
   function addToBench(run, p) {
-    var i = freeBenchSlot(run);
+    var d = p.def || D.pieceById(p.k);
+    if (benchFree(run) < ((d && d.size) || 1)) return false;
+    var i = -1;
+    syncBench(run);
+    for (var bi = 0; bi < run.bench.length; bi++) if (!run.bench[bi]) { i = bi; break; }
+    if (i < 0) return false;
     if (i < 0) return false;
     run.bench[i] = p;
     p.cells = null;
@@ -500,6 +514,8 @@
     benchSlots: benchSlots,
     syncBench: syncBench,
     freeBenchSlot: freeBenchSlot,
+    benchUsed: benchUsed,
+    benchFree: benchFree,
     addToBench: addToBench,
     removePiece: removePiece,
     pieceAt: pieceAt,

@@ -5,27 +5,28 @@
       <div class="block">
         <div class="head">
           <span>备战席</span>
-          <span class="sub">{{ filled }}/{{ ui.slotCount }}</span>
+          <span class="sub">{{ usedBenchCells }}/{{ ui.benchCap }} 格</span>
         </div>
-        <div class="bench">
+        <div class="benchgrid" :style="{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }">
           <button
-            v-for="i in ui.slotCount"
-            :key="i"
-            class="slot"
-            :class="{ filled: !!ui.bench[i - 1], sel: ui.sel === (ui.bench[i - 1] && ui.bench[i - 1].id) }"
-            @click="pick(i - 1)"
-            @pointerdown="onDown(i - 1, $event)"
+            v-for="b in ui.benchView"
+            :key="b.id"
+            class="bslot"
+            :class="{ sel: ui.sel === b.id, hero: b.hero }"
+            :style="{ gridColumn: 'span ' + b.w, gridRow: 'span ' + b.h }"
+            @click="pick(b.idx)"
+            @pointerdown="onDown(b.idx, $event)"
             @dragstart.prevent
           >
-            <template v-if="ui.bench[i - 1]">
-              <span class="utile" :class="{ hero: ui.bench[i - 1].hero, shard: ui.bench[i - 1].shard }">
-                <span class="ch">{{ ui.bench[i - 1].ch }}</span>
-                <span v-if="ui.bench[i - 1].lv > 1" class="lv">{{ ui.bench[i - 1].lv }}</span>
-                <i v-if="ui.bench[i - 1].sz > 1" class="sz">{{ ui.bench[i - 1].sz }}</i>
-              </span>
-            </template>
-            <span v-else class="empty">+</span>
+            <span class="ch">{{ b.ch }}</span>
+            <span v-if="b.lv > 1" class="lv">{{ b.lv }}</span>
+            <i v-if="b.sz > 1" class="sz">{{ b.sz }}格</i>
           </button>
+          <div
+            v-for="n in Math.max(0, ui.benchCap - usedBenchCells)"
+            :key="'e' + n"
+            class="bslot empty"
+          ><span>+</span></div>
         </div>
       </div>
 
@@ -103,6 +104,10 @@ const bookSel = ref(-1)
 const book = computed(() => (bookSel.value >= 0 ? ui.books.list[bookSel.value] : null))
 
 const filled = computed(() => ui.bench.filter(Boolean).length)
+const usedBenchCells = computed(() => {
+  void ui.rev
+  return (ui.benchView || []).reduce((a, b) => a + b.w * b.h, 0)
+})
 
 const skills = computed(() => {
   void ui.rev
@@ -250,7 +255,17 @@ function sellSel() {
 .head::before { content: ""; width: 3px; height: 11px; background: #a5342a; border-radius: 1px; }
 .sub { margin-left: auto; font-size: 9.5px; color: #9b8f7d; font-variant-numeric: tabular-nums; }
 
-.bench { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+.benchgrid { display: grid; grid-auto-rows: 34px; gap: 5px; }
+.bslot { position: relative; display: flex; align-items: center; justify-content: center;
+  border-radius: 9px; border: 1.5px solid rgba(160,122,45,.5); min-width: 0; cursor: pointer;
+  background: linear-gradient(180deg, #3b342b, #1c1814); color: #f4ecda; padding: 0; }
+.bslot .ch { font-family: var(--kai, "KaiTi", serif); font-size: 17px; }
+.bslot .lv { position: absolute; left: 4px; top: 3px; font-size: 9px; color: #f0d68a; }
+.bslot .sz { position: absolute; right: 4px; bottom: 2px; font-style: normal; font-size: 8px; color: #b9a98a; }
+.bslot.sel { outline: 2px solid #c9a24b; outline-offset: 1px; }
+.bslot.hero { background: linear-gradient(180deg, #e0c076, #96701f); color: #2a2008; }
+.bslot.empty { background: rgba(120,95,60,.06); border-style: dashed; cursor: default; }
+.bslot.empty span { color: rgba(120,92,50,.5); font-size: 15px; }
 .slot {
   position: relative; min-height: 46px;
   touch-action: none; -webkit-user-select: none; user-select: none;
@@ -334,7 +349,7 @@ function sellSel() {
 
 @media (min-width: 901px) {
   .sheet { border-top: none; border-radius: 0 0 10px 10px; padding: 8px 10px 10px; }
-  .bench { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  
   .slot { min-height: 54px; }
   .bar { grid-template-columns: minmax(0, .8fr) minmax(0, 1fr) minmax(0, 1.5fr); }
   .sbtn.red { min-height: 34px; }

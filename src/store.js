@@ -8,6 +8,9 @@ export const ui = reactive({
   cellsMax: 22,
   cellsUsed: 0,
   bench: [],           // [{id, ch, lv, sz, hero, shard, ench}]
+  benchView: [],       // 备战席网格：{id, ch, lv, sz, w, h, idx}（按真实大小占格）
+  benchRows: 3,        // 网格 4 列 × 3 行
+  benchCap: 6,         // 可用的格数（藏兵 +2/+4）
   gold: 0,
   phase: 'shop',       // shop | battle
   opp: '',
@@ -216,6 +219,44 @@ export function installBridge() {
       g.Run.syncBench(run)
       ui.slotCount = g.Run.benchSlots(run)
       ui.bench = run.bench.map(snapPiece)
+      // 备战席按「真实大小」排布：1 格 1×1、2 格 2×1、4 格 2×2、6 格 2×3、9 格 3×3
+      ;(function layoutBench() {
+        var COLS = 4, ROWS = 3, grid = [], view = []
+        for (var gi = 0; gi < COLS * ROWS; gi++) grid.push(0)
+        function shape(sz) {
+          if (sz >= 9) return { w: 3, h: 3 }
+          if (sz >= 6) return { w: 2, h: 3 }
+          if (sz >= 4) return { w: 2, h: 2 }
+          if (sz >= 2) return { w: 2, h: 1 }
+          return { w: 1, h: 1 }
+        }
+        for (var bi = 0; bi < run.bench.length; bi++) {
+          var bp = run.bench[bi]
+          if (!bp) continue
+          var d = g.D.pieceById(bp.k) || {}
+          var sh = shape(d.size || 1)
+          var spot = null
+          for (var r0 = 0; r0 + sh.h <= ROWS && !spot; r0++) {
+            for (var c0 = 0; c0 + sh.w <= COLS; c0++) {
+              var free = true
+              for (var rr = 0; rr < sh.h && free; rr++)
+                for (var cc = 0; cc < sh.w; cc++) if (grid[(r0 + rr) * COLS + c0 + cc]) { free = false; break }
+              if (free) { spot = { c0: c0, r0: r0 }; break }
+            }
+          }
+          if (!spot) continue
+          for (var fr = 0; fr < sh.h; fr++)
+            for (var fc = 0; fc < sh.w; fc++) grid[(spot.r0 + fr) * COLS + spot.c0 + fc] = 1
+          view.push({
+            id: bp.id, ch: (d.ch || '?'), lv: bp.level || 1, sz: d.size || 1,
+            hero: bp.k === 'jiang', shard: false,
+            w: sh.w, h: sh.h, c0: spot.c0, r0: spot.r0, idx: bi
+          })
+        }
+        ui.benchView = view
+        ui.benchRows = ROWS
+        ui.benchCap = g.Run.benchSlots(run) || 6
+      })()
       ui.gold = run.gold
       ui.phase = run.phase
       ui.opp = run.opp ? run.opp.name : ''
