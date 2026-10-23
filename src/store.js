@@ -221,7 +221,7 @@ export function installBridge() {
       ui.bench = run.bench.map(snapPiece)
       // 备战席按「真实大小」排布：1 格 1×1、2 格 2×1、4 格 2×2、6 格 2×3、9 格 3×3
       ;(function layoutBench() {
-        var COLS = 4, ROWS = 3, grid = [], view = []
+        var COLS = 4, ROWS = 24, grid = [], view = []
         for (var gi = 0; gi < COLS * ROWS; gi++) grid.push(0)
         function shape(sz) {
           if (sz >= 9) return { w: 3, h: 3 }
@@ -254,7 +254,7 @@ export function installBridge() {
           })
         }
         ui.benchView = view
-        ui.benchRows = ROWS
+        ui.benchRows = Math.max(1, Math.ceil((view.reduce(function (a, b) { return a + b.w * b.h; }, 0) || 1) / COLS))
         ui.benchCap = g.Run.benchSlots(run) || 6
       })()
       ui.gold = run.gold

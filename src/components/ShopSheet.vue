@@ -5,7 +5,7 @@
       <div class="block">
         <div class="head">
           <span>备战席</span>
-          <span class="sub">{{ usedBenchCells }}/{{ ui.benchCap }} 格</span>
+          <span class="sub">{{ filled }}/{{ ui.benchCap }}</span>
         </div>
         <div class="benchgrid">
           <button
@@ -23,7 +23,7 @@
             <i v-if="b.sz > 1" class="sz">{{ b.sz }}格</i>
           </button>
           <div
-            v-for="n in Math.max(0, ui.benchCap - usedBenchCells)"
+            v-for="n in Math.max(0, ui.benchCap - filled)"
             :key="'e' + n"
             class="bslot empty"
           ><span>+</span></div>
@@ -255,7 +255,7 @@ function sellSel() {
 .head::before { content: ""; width: 3px; height: 11px; background: #a5342a; border-radius: 1px; }
 .sub { margin-left: auto; font-size: 9.5px; color: #9b8f7d; font-variant-numeric: tabular-nums; }
 
-.benchgrid { display: grid; grid-template-columns: repeat(4, 44px); grid-template-rows: repeat(3, 44px);
+.benchgrid { display: grid; grid-template-columns: repeat(4, 44px); grid-auto-rows: 44px;
   gap: 5px; justify-content: start; }
 .bslot { position: relative; display: flex; align-items: center; justify-content: center;
   border-radius: 9px; border: 1.5px solid rgba(160,122,45,.5); min-width: 0; min-height: 0; cursor: pointer;

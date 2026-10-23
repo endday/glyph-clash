@@ -211,8 +211,8 @@
     return true;
   }
 
-  // 备战席容量：按格算，但网格只有 4×3=12 格，不能超
-  function benchSlots(run) { return Math.min(12, CFG.benchBase + (mods(run).bench || 0)); }
+  // 备战席容量：按「个数」算（面积只影响显示）
+  function benchSlots(run) { return CFG.benchBase + (mods(run).bench || 0); }
 
   function syncBench(run) {
     var n = benchSlots(run);
@@ -231,15 +231,16 @@
     return n;
   }
   function benchFree(run) { return benchSlots(run) - benchUsed(run); }
-  // 兼容旧调用：还有空位就返回真值
-  function freeBenchSlot(run) { return benchFree(run) > 0 ? 0 : -1; }
+  // 兼容旧调用：还有空位就返回真值（按个数）
+  function freeSlotIndex(run) {
+    syncBench(run);
+    for (var i = 0; i < run.bench.length; i++) if (!run.bench[i]) return i;
+    return -1;
+  }
+  function freeBenchSlot(run) { return freeSlotIndex(run); }
 
   function addToBench(run, p) {
-    var d = p.def || D.pieceById(p.k);
-    if (benchFree(run) < ((d && d.size) || 1)) return false;
-    var i = -1;
-    syncBench(run);
-    for (var bi = 0; bi < run.bench.length; bi++) if (!run.bench[bi]) { i = bi; break; }
+    var i = freeSlotIndex(run);        // 只看有没有空位，不管棋子多占地方
     if (i < 0) return false;
     if (i < 0) return false;
     run.bench[i] = p;
