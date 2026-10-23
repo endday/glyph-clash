@@ -123,10 +123,21 @@
 
     var s = cw / 2, i, c;
     var owned = GB.Run && GB.Run.ownedSet && run ? GB.Run.ownedSet(run) : null;
+    // 对手的背包格也一样是买出来的：把它没解锁的格子同样画成虚线暗格
+    var ownedE = null;
+    if (run && run.opp && run.opp.cellsN) {
+      var order = MAP.ownedOrder();
+      ownedE = {};
+      for (var oi = 0; oi < Math.min(run.opp.cellsN, order.length); oi++) {
+        ownedE[MAP.key(order[oi].c, MAP.ROWS - 1 - order[oi].r)] = true;
+      }
+    }
     for (i = 0; i < MAP.CELLS.length; i++) {
       c = MAP.CELLS[i];
       if (!showEnemy && c.zone === 'e') continue;
-      var mine = c.zone !== 'p' || !owned || !!owned[MAP.key(c.q, c.r)];
+      var mine = c.zone === 'p'
+        ? (!owned || !!owned[MAP.key(c.c, c.r)])
+        : (!ownedE || !!ownedE[MAP.key(c.c, c.r)]);
       sqPath(g, px(c.x), py(c.y), s * 0.99);
       g.fillStyle = c.zone === 'p' ? (mine ? P_TINT : 'rgba(120,95,60,.05)') : E_TINT;
       g.fill();

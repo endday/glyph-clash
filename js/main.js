@@ -59,7 +59,9 @@
       factionP: run.faction,
       factionO: opp.faction,
       booksP: run.skills,
+      booksO: opp.books || [],
       ownedCells: GB.Run.cellsN(run),
+      ownedCellsO: opp.cellsN || 12,
       frontRowP: GB.MAP.frontRow('p'),
       autoUlt: autoUlt,
       seed: (run.seed + run.day * 977) | 0

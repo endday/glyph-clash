@@ -155,7 +155,14 @@
   // 兵书里「条件式」的那几条：开局按阵型算一次
   function applyBooks(b) {
     if (!b.books || !b.books.length) return;
-    var list = b.p;
+    applyBooksSide(b, b.p, 'p', b.frontRowP || 4, b.ownedCells || 0);
+    applyBooksSide(b, b.e, 'o', MAP.frontRow('e'), b.ownedCellsO || 0);
+  }
+
+  function applyBooksSide(b, list, side, frontRow, ownedCells) {
+    var books = [];
+    for (var bi = 0; bi < b.books.length; bi++) if ((b.books[bi].side || 'p') === side) books.push(b.books[bi]);
+    if (!books.length) return;
     var units = 0, big = 0, lvl3 = 0, used = 0;
     var minC = 99, maxC = -1;
     for (var i = 0; i < list.length; i++) {
@@ -171,11 +178,10 @@
         if (p.cells[j].c > maxC) maxC = p.cells[j].c;
       }
     }
-    var empty = Math.max(0, (b.ownedCells || 0) - used);
-    var frontRow = b.frontRowP || 4;
+    var empty = Math.max(0, ownedCells - used);
 
-    for (var k = 0; k < b.books.length; k++) {
-      var bk = b.books[k], when = bk.def.when, give = bk.def.give;
+    for (var k = 0; k < books.length; k++) {
+      var bk = books[k], when = bk.def.when, give = bk.def.give;
       if (!when || !give) continue;
       var tier = bk.tier;
       var stacks = 1;
@@ -214,7 +220,8 @@
             if (onFront) q3.armor = Math.max(q3.armor || 0, v);
           }
         } else if (gk === 'healToShield') {
-          b.healToShield = Math.max(b.healToShield || 0, v);
+          if (side === 'p') b.healToShield = Math.max(b.healToShield || 0, v);
+          else b.healToShieldO = Math.max(b.healToShieldO || 0, v);
         }
       }
     }
@@ -257,13 +264,16 @@
       piece = mkPiece(o.piecesO[i], 'o', b);
       if (piece) b.e.push(piece);
     }
-    // 兵书（遗物）：只作用于玩家一侧
-    var books = o.booksP || [];
-    for (i = 0; i < books.length; i++) {
-      var bkDef = D.skillById ? D.skillById(books[i].id) : D.skills;
-      if (!bkDef) continue;
-      b.books.push({ id: books[i].id, tier: books[i].tier || bkDef.tier || 1, def: bkDef });
+    // 兵书（遗物）：双方各一份，规则完全对等
+    function loadBooks(src, side) {
+      for (var bi = 0; bi < (src || []).length; bi++) {
+        var bkDef = D.skillById ? D.skillById(src[bi].id) : null;
+        if (!bkDef) continue;
+        b.books.push({ id: src[bi].id, tier: src[bi].tier || bkDef.tier || 1, def: bkDef, side: side });
+      }
     }
+    loadBooks(o.booksP, 'p');
+    loadBooks(o.booksO, 'o');
     stats(b);
     b.startHpP = sumHp(b.p) || 1;
     b.startHpO = sumHp(b.e) || 1;
@@ -304,12 +314,12 @@
   // 谁对哪类事件感兴趣（棋子阵亡后要重建）
   function rebuildHooks(b) {
     b.hooks = {};
-    // 兵书（遗物）挂在玩家一侧，没有位置概念（scope 只有 team 有意义）
+    // 兵书（遗物）没有位置概念（scope 只有 team 有意义），两侧各挂一份
     for (var bi = 0; bi < (b.books || []).length; bi++) {
       var bk = b.books[bi];
       if (!bk.def.on) continue;
       var fake = {
-        book: bk, side: 'p', alive: true, structure: true, cells: null,
+        book: bk, side: bk.side || 'p', alive: true, structure: true, cells: null,
         def: { limits: bk.def.limits, on: bk.def.on, ch: bk.def.ch, role: 'book' },
         on: bk.def.on, isBook: true
       };
@@ -704,9 +714,10 @@
       var t = allies[0];
       var before = t.hp;
       t.hp = Math.min(t.maxHp, t.hp + p.heal);
-      if (b.healToShield > 0 && t.hp > before) {
+      var h2s = p.side === 'p' ? b.healToShield : b.healToShieldO;
+      if (h2s > 0 && t.hp > before) {
         var over = (before + p.heal) - t.maxHp;
-        if (over > 0) t.shield = Math.min(t.maxHp * 0.6, t.shield + over * b.healToShield);
+        if (over > 0) t.shield = Math.min(t.maxHp * 0.6, t.shield + over * h2s);
       }
       t.healT = 1;
       if (p.def.emits === 'trigger') emit(b, 'trigger', { src: p, tgt: t, depth: 0 });

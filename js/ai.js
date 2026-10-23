@@ -1,128 +1,169 @@
-/* ai.js — 预置幽灵阵：12 套有名有姓的模板 */
+/* ai.js — 幽灵对手：和玩家用同一套规则跑一遍（同经济、同格子、同商店、同合成）
+   不再给免费属性、免费等级或超大棋盘：对手的强度来自它的「打法」，不是暗改数值。 */
 (function (root) {
   'use strict';
   var GB = root.GB = root.GB || {};
   var D = GB.D, MAP = GB.MAP, U = GB.U;
 
-  var TEMPLATES = [
-    { id: 'wuming', name: '无名阵', faction: 'mojia', from: 1, core: ['dao', 'dao'], fill: ['dao', 'yi', 'gu'] },
-    { id: 'hubao', name: '虎豹骑', faction: 'dongwu', from: 2, core: ['qi', 'dao'], fill: ['dao', 'gu', 'flag_dmg'] },
-    { id: 'lianu', name: '连弩营', faction: 'wolong', from: 2, core: ['gong', 'lou'], fill: ['gong', 'flag_dmg', 'qiang'] },
-    { id: 'changqiang', name: '长枪阵', faction: 'mojia', from: 3, core: ['qiang', 'gu'], fill: ['qiang', 'ji', 'dao'] },
-    { id: 'yaowang', name: '药王谷', faction: 'miaoyu', from: 3, core: ['yi', 'lu'], fill: ['dao', 'dun', 'flag_armor'] },
-    { id: 'huoshen', name: '火神庙', faction: 'dongwu', from: 4, core: ['huo', 'feng'], fill: ['dao', 'flag_burn', 'yi'] },
-    { id: 'sanlian', name: '三连射', faction: 'wolong', from: 4, core: ['gong', 'gong'], fill: ['lou', 'flag_dmg', 'yi'] },
-    { id: 'wuhu', name: '五虎将', faction: 'wolong', from: 5, core: ['jiang', 'dao'], fill: ['lou', 'gong', 'gu'] },
-    { id: 'tiebi', name: '铁壁营', faction: 'mojia', from: 5, core: ['dun', 'ji'], fill: ['dao', 'flag_armor', 'yi'] },
-    { id: 'shuangqi', name: '双骑冲', faction: 'dongwu', from: 5, core: ['qi', 'liuma'], fill: ['qi', 'gu', 'flag_dmg'] },
-    { id: 'leich', name: '雷池', faction: 'miaoyu', from: 6, core: ['lei', 'shuang'], fill: ['du', 'dao', 'lu'] },
-    { id: 'kongying', name: '空营计', faction: 'taozhu', from: 6, core: ['piao', 'jin'], fill: ['dao', 'yi', 'flag_dmg'] }
-  ];
+  // 只用来取名字的阵营风味（没有任何数值作用）
+  var NAMES = ['无名阵', '虎豹骑', '连弩营', '长枪阵', '药王谷', '火神庙',
+               '三连射', '五虎将', '铁壁营', '双骑冲', '雷池', '空营计'];
 
-  var HERO_IDS = ['zhaoyun', 'guanyu', 'zhangfei', 'huangzhong', 'machao'];
+  var simulating = 0;
 
-  function pickTemplate(day, rnd) {
-    var pool = TEMPLATES.filter(function (t) { return t.from <= day; });
-    if (!pool.length) pool = [TEMPLATES[0]];
-    return pool[Math.floor(rnd() * pool.length)];
-  }
-
-  function placePiece(occ, k, level, rnd, cells) {
-    var def = D.pieceById(k);
-    if (!def) return null;
-    var rows = MAP.rowsFor('e', def.role);
-    var list = [];
-    for (var q = 0; q < rows.length; q++) {
-      var band = cells.filter(function (c) { return c.r === rows[q]; });
-      list = list.concat(U.shuffle(band, rnd));
-    }
-    for (var i = 0; i < list.length; i++) {
-      var res = MAP.findPlacement(occ, list[i].c, list[i].r, def.size, 'e');
-      if (!res) continue;
-      var p = {
-        id: 'o' + k + '_' + Math.floor(rnd() * 1e6),
-        k: k,
-        level: level,
-        cells: res.cells,
-        rot: res.rot,
-        ench: null,
-        heroId: null
+  /* 把「我方半场」摆好的阵镜像到对面（8 行 → r' = 7 - r） */
+  function mirror(pieces) {
+    return pieces.map(function (p) {
+      var out = {
+        id: p.id, k: p.k, level: p.level || 1, evo: p.evo || null,
+        ench: p.ench || null, heroId: p.heroId || null,
+        multicast: p.multicast || 0, cells: []
       };
-      if (k === 'jiang') p.heroId = HERO_IDS[Math.floor(rnd() * HERO_IDS.length)];
-      for (var j = 0; j < res.cells.length; j++) occ[MAP.key(res.cells[j].q, res.cells[j].r)] = p;
-      return p;
-    }
-    return null;
+      for (var i = 0; i < p.cells.length; i++) {
+        var c = p.cells[i];
+        out.cells.push(MAP.cell(c.c, MAP.ROWS - 1 - c.r));
+      }
+      return out;
+    });
   }
 
+  /* 对手的一回合：开书 → 扩建 → 买子 → 合成 → 上阵（和玩家做的事一样） */
+  function aiTurn(run, rnd) {
+    var i, j;
+
+    // 兵书三选一
+    if (run.bookOffer && run.bookOffer.length && !GB.Run.skillFull(run)) {
+      var pick = run.bookOffer[Math.floor(rnd() * run.bookOffer.length)];
+      var sk = D.skillById(pick);
+      GB.Run.chooseBook(run, pick, Math.min(GB.Run.skillTierMax(run), (sk && sk.tier) || 1));
+    }
+
+    // 扩建：留着 6 金买棋子
+    for (i = 0; i < 2; i++) {
+      var price = GB.Run.nextCellPrice(run);
+      if (!price || run.gold < price + 6) break;
+      var own = GB.Run.ownedSet(run);
+      var spot = null, list = MAP.playerCells();
+      for (j = 0; j < list.length; j++) {
+        if (!own[MAP.key(list[j].c, list[j].r)] && GB.Run.canUnlock(run, list[j].c, list[j].r)) { spot = list[j]; break; }
+      }
+      if (!spot) break;
+      GB.Run.unlockCell(run, spot.c, spot.r);
+    }
+
+    // 买棋子：优先补同名（好合成），否则买最贵的
+    for (i = 0; i < 3; i++) {
+      if (GB.Run.freeBenchSlot(run) < 0) break;
+      var offers = (run.offers || []).filter(function (o) {
+        return o.type === 'piece' && !o.sold && run.gold >= o.price + 3;
+      });
+      if (!offers.length) break;
+      var owned = {};
+      GB.Run.allPieces(run).forEach(function (p) { owned[p.k] = (owned[p.k] || 0) + 1; });
+      var dup = offers.filter(function (o) { return owned[o.k]; });
+      var pickOffer;
+      if (dup.length && rnd() < 0.65) pickOffer = dup[0];
+      else {
+        offers.sort(function (a, z) {
+          return (D.pieceById(z.k).price || 0) - (D.pieceById(a.k).price || 0);
+        });
+        pickOffer = offers[0];
+      }
+      var res = GB.Shop.buy(run, pickOffer);
+      if (!res || !res.ok) break;
+    }
+
+    // 合成（能合就合）
+    var merged = true, guard = 0;
+    while (merged && guard++ < 30) {
+      merged = false;
+      var all = GB.Run.allPieces(run);
+      outer: for (i = 0; i < all.length; i++) {
+        for (j = i + 1; j < all.length; j++) {
+          if (GB.Run.canMerge(all[i], all[j])) {
+            GB.Run.mergeInto(run, all[i], all[j]);
+            merged = true;
+            break outer;
+          }
+        }
+      }
+    }
+    // 进化也照选（随机，不挑）
+    guard = 0;
+    while (guard++ < 10) {
+      var pend = GB.Run.pendingEvo(run);
+      if (!pend) break;
+      var opts = D.evoOptions(pend.k) || [];
+      if (!opts.length) { pend.pendingEvo = false; break; }
+      GB.Run.chooseEvo(run, pend, opts[Math.floor(rnd() * opts.length)].id);
+    }
+
+    // 上阵：按角色分行（近战在前、远程在后）
+    run.bench.filter(Boolean).forEach(function (p) {
+      var def = D.pieceById(p.k) || {};
+      var rows = MAP.rowsFor('p', def.role);
+      var cells = MAP.playerCells();
+      var placed = false;
+      for (var q = 0; q < rows.length && !placed; q++) {
+        for (var k = 0; k < cells.length; k++) {
+          if (cells[k].r !== rows[q]) continue;
+          if (GB.Run.placeAt(run, p, cells[k].c, cells[k].r)) { placed = true; break; }
+        }
+      }
+    });
+  }
+
+  /* 造对手：从第 1 天开始，用和玩家一样的规则打到第 day 天 */
   function makeOpponent(day, seed) {
-    var rnd = U.mulberry32(((seed | 0) + day * 7919) >>> 0);
-    var tpl = pickTemplate(day, rnd);
-    var budget = 2.6 + day * 1.15;
-    var occ = {}, pieces = [];
-    var cells = MAP.enemyCells();
+    if (simulating) return null;      // 模拟自己时不要再造对手（防递归）
+    simulating++;
+    try {
+      var rnd = U.mulberry32(((seed | 0) + day * 7919) >>> 0);
+      var facIds = Object.keys(D.FACTIONS);
+      var fac = facIds[Math.floor(rnd() * facIds.length)] || 'dongwu';
 
-    var baseLv = U.clamp(1 + Math.floor(day / 3), 1, 3);
-    function lvFor() {
-      var lv = baseLv;
-      if (day >= 2 && rnd() < 0.5) lv++;
-      return U.clamp(lv, 1, 3);
+      var run = GB.Run.newRun((seed | 0) + day * 131, fac);
+      run.opp = null;
+      aiTurn(run, rnd);                       // 第 1 天
+      for (var d = 1; d < day; d++) {
+        run.day++;                            // 推进天数（解锁表、兵书位、货架都看它）
+        GB.Run.startDay(run, false);          // 发收入、开兵书位、刷新货架
+        aiTurn(run, rnd);
+      }
+
+      var pieces = mirror(GB.Run.boardPieces(run));
+      var f = D.FACTIONS[fac];
+      return {
+        name: NAMES[(day + (seed | 0)) % NAMES.length],
+        faction: fac,
+        factionName: f ? f.name : '无名',
+        pieces: pieces,
+        books: (run.skills || []).slice(),
+        cellsN: GB.Run.cellsN(run),
+        mods: GB.Run.mods(run),               // 只带它自己买到的兵书效果
+        power: pieces.reduce(function (a, x) {
+          var def = D.pieceById(x.k);
+          return a + (x.level || 1) * (def ? def.size : 1);
+        }, 0)
+      };
+    } finally {
+      simulating--;
     }
-
-    var i, p;
-    for (i = 0; i < tpl.core.length; i++) {
-      var def = D.pieceById(tpl.core[i]);
-      if (!def || def.size > budget) continue;
-      p = placePiece(occ, tpl.core[i], lvFor(), rnd, cells);
-      if (p) { pieces.push(p); budget -= def.size; }
-    }
-
-    var guard = 0;
-    while (budget >= 1 && pieces.length < 12 && guard++ < 40) {
-      var k = tpl.fill[Math.floor(rnd() * tpl.fill.length)];
-      var d2 = D.pieceById(k);
-      if (!d2 || d2.size > budget) { budget -= 0; guard++; if (guard > 12) break; continue; }
-      p = placePiece(occ, k, lvFor(), rnd, cells);
-      if (p) { pieces.push(p); budget -= d2.size; }
-    }
-
-    var fac = D.FACTIONS[tpl.faction] || D.FACTIONS.mojia;
-    var mods = {
-      dmgMul: 0.05 * (day - 1),
-      spd: 0.025 * (day - 1),
-      hp: 0.09 * (day - 1),
-      auraBoost: tpl.faction === 'mojia' ? 0.25 : 0,
-      pieceBurn: tpl.faction === 'dongwu' ? 0.25 : (tpl.faction === 'miaoyu' ? 0.18 : 0),
-      arcRange: tpl.faction === 'wolong' ? 1 : 0,
-      healBoost: 0, tankHp: 0, frontArmor: 0, arcSpd: 0, openingRush: 0,
-      killGold: 0, killCap: 99, income: 0, mergeGold: 0, bench: 0, shopSlot: 0,
-      sellFull: false, alwaysUnit: false, rupture: 0
-    };
-
-    return {
-      template: tpl.id,
-      name: tpl.name,
-      faction: tpl.faction,
-      factionName: fac.name,
-      pieces: pieces,
-      mods: mods,
-      power: pieces.reduce(function (a, x) { return a + x.level * D.pieceById(x.k).size; }, 0)
-    };
   }
 
   function gridFrom(pieces) {
     var g = {};
     for (var i = 0; i < pieces.length; i++) {
       for (var j = 0; j < pieces[i].cells.length; j++) {
-        g[MAP.key(pieces[i].cells[j].q, pieces[i].cells[j].r)] = pieces[i];
+        g[MAP.key(pieces[i].cells[j].c, pieces[i].cells[j].r)] = pieces[i];
       }
     }
     return g;
   }
 
   GB.AI = {
-    TEMPLATES: TEMPLATES,
     makeOpponent: makeOpponent,
-    gridFrom: gridFrom
+    gridFrom: gridFrom,
+    mirror: mirror
   };
 }(typeof window !== 'undefined' ? window : globalThis));
