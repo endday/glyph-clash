@@ -24,6 +24,7 @@ export const ui = reactive({
   log: [],             // 战报（最近 5 条）
   modal: null,         // 弹窗：title / outcome / menu
   evo: null,           // 待选规则进化 {id, ch, name, options}
+  books: { slots: 0, list: [], offer: [] },   // 兵书＝遗物：槽位 / 已拥有 / 三选一
   toasts: [],          // 浮动提示
   drag: null,          // 拖动中的棋子 {id, ch, hero, x, y, active, from}
   b: null,             // 战斗快照
@@ -232,6 +233,15 @@ export function installBridge() {
       ui.log = (run.log || []).slice(-5).reverse().map((e) => ({ d: e.d, t: e.t }))
       ui.b = battle && run.phase === 'battle' ? snapBattle(battle) : null
       ui.inited = true
+      var bkList = (run.skills || []).map(function (own) {
+        var d = g.D.skillById(own.id)
+        return d ? { id: own.id, ch: d.ch, name: d.name, tier: own.tier || 1, desc: d.desc } : null
+      }).filter(Boolean)
+      var bkOffer = (run.bookOffer || []).map(function (id) {
+        var d = g.D.skillById(id)
+        return d ? { id: id, ch: d.ch, name: d.name, tier: d.tier || 1, desc: d.desc } : null
+      }).filter(Boolean)
+      ui.books = { slots: g.Run.skillSlots(run), list: bkList, offer: bkOffer }
       var pend = g.Run.pendingEvo ? g.Run.pendingEvo(run) : null
       if (pend) {
         var pd = pend.def || g.D.pieceById(pend.k)

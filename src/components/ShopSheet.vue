@@ -42,13 +42,13 @@
       <div class="block">
         <div class="head">
           <span>兵书</span>
-          <span class="sub">{{ skills.length }} 卷</span>
+          <span class="sub">{{ ui.books.list.length }}/{{ ui.books.slots }} 卷</span>
         </div>
-        <p v-if="!skills.length" class="note">还没有兵书</p>
+        <p v-if="!ui.books.list.length" class="note">第 2 天开第一个兵书位</p>
         <template v-else>
           <div class="books">
             <button
-              v-for="(s, i) in skills"
+              v-for="(s, i) in ui.books.list"
               :key="s.id"
               class="book"
               :class="{ gold: s.tier === 3, sel: bookSel === i }"
@@ -101,16 +101,13 @@ const runNow = computed(() => {
 })
 
 const bookSel = ref(-1)
-const book = computed(() => (bookSel.value >= 0 ? skills.value[bookSel.value] : null))
+const book = computed(() => (bookSel.value >= 0 ? ui.books.list[bookSel.value] : null))
 
 const filled = computed(() => ui.bench.filter(Boolean).length)
 
 const skills = computed(() => {
   void ui.rev
-  const run = runNow.value
-  const g = GB()
-  if (!run || !g) return []
-  return run.skills.map((s) => g.D.SKILLS[s.id]).filter(Boolean)
+  return ui.books.list
 })
 
 const faction = computed(() => {
@@ -148,8 +145,8 @@ const rows = computed(() => {
   return out
 })
 
-watch(skills, (list) => {
-  if (bookSel.value >= list.length) bookSel.value = -1
+watch(() => ui.books.list.length, (n) => {
+  if (bookSel.value >= n) bookSel.value = -1
 })
 
 const heroes = computed(() => {

@@ -37,6 +37,7 @@
       bench: new Array(CFG.benchBase).fill(null),
       cellsOwned: null,   // 已解锁的格子 key（默认取解锁顺序的前 N 格）
       skills: [],
+      bookOffer: null,
       offers: [],
       rerollCount: 0,
       log: [],
@@ -123,24 +124,29 @@
   }
 
   /* ---------------- 备战席 ---------------- */
+  // 战斗侧由 battle.js 读 booksP 自己算，这里不重复累加
+  var BATTLE_KEYS = { atkMul: 1, spdMul: 1, armor: 1, healToShield: 1, rerollHit: 1, spreadAgain: 1 };
+
   function mods(run) {
-    var key = run.faction + '|' + run.skills.map(function (s) { return s.id; }).sort().join(',');
+    var key = run.faction + '|' + run.skills.map(function (s) { return s.id + ':' + (s.tier || 1); }).sort().join(',');
     if (run._mk === key && run._mv) return run._mv;
     var m = {
       dmgMul: 0, spd: 0, hp: 0, healBoost: 0, auraBoost: 0, arcSpd: 0, arcRange: 0,
       tankHp: 0, frontArmor: 0, pieceBurn: 0, killGold: 0, killCap: 99,
-      income: 0, mergeGold: 0, bench: 0, shopSlot: 0,
+      income: 0, mergeGold: 0, bench: 0, shopSlot: 0, freeReroll: 0, shopDiscount: 0,
+      goldPerBig: 0, mergeMulticast: 0,
       sellFull: false, alwaysUnit: false, rupture: 0, openingRush: 0, orders: 0
     };
     for (var i = 0; i < run.skills.length; i++) {
-      var sk = D.SKILLS[run.skills[i].id];
-      if (!sk || !sk.fx) continue;
-      for (var k in sk.fx) {
-        if (!sk.fx.hasOwnProperty(k)) continue;
-        var v = sk.fx[k];
-        if (k === 'killCap') m.killCap = v;
-        else if (k === 'sellFull' || k === 'alwaysUnit') m[k] = m[k] || v;
-        else if (k === 'dmg') m.dmgMul += v;
+      var own = run.skills[i];
+      var sk = D.skillById ? D.skillById(own.id) : D.SKILLS[own.id];
+      if (!sk || !sk.give) continue;
+      var tier = own.tier || sk.tier || 1;
+      for (var k in sk.give) {
+        if (!sk.give.hasOwnProperty(k)) continue;
+        if (BATTLE_KEYS[k]) continue;
+        var v = D.skillValue(sk.give[k], tier);
+        if (k === 'sellFull' || k === 'alwaysUnit') m[k] = m[k] || !!v;
         else m[k] = (m[k] || 0) + v;
       }
     }
@@ -154,6 +160,55 @@
     }
     run._mk = key; run._mv = m;
     return m;
+  }
+
+  /* ---------------- 兵书（遗物） ---------------- */
+  function skillSlots(run) {
+    var n = 0;
+    for (var i = 0; i < CFG.skillSlots.length; i++) if (run.day >= CFG.skillSlots[i]) n++;
+    return n;
+  }
+  function skillTierMax(run) {
+    var t = 1;
+    for (var i = 0; i < CFG.skillTierDay.length; i++) if (run.day >= CFG.skillTierDay[i]) t = i + 1;
+    return t;
+  }
+  function skillPrice(tier) { return CFG.skillPrice[Math.max(0, Math.min(2, (tier || 1) - 1))]; }
+  function hasSkill(run, id) {
+    for (var i = 0; i < run.skills.length; i++) if (run.skills[i].id === id) return true;
+    return false;
+  }
+  function skillFull(run) { return run.skills.length >= skillSlots(run); }
+  // 三选一：从当天开放的档位里抽 3 条没拿过的
+  function rollBooks(run, seed) {
+    if (skillFull(run)) return [];
+    var tmax = skillTierMax(run);
+    var rnd = U.mulberry32(((seed || run.seed) + run.day * 3301) >>> 0);
+    var pool = [];
+    for (var id in D.SKILLS) {
+      if (!D.SKILLS.hasOwnProperty(id)) continue;
+      var sk = D.SKILLS[id];
+      if (sk.tier > tmax || hasSkill(run, id)) continue;
+      pool.push(id);
+    }
+    var out = [];
+    while (out.length < 3 && pool.length) {
+      var k = Math.floor(rnd() * pool.length);
+      out.push(pool[k]);
+      pool.splice(k, 1);
+    }
+    return out;
+  }
+  function chooseBook(run, id, tier) {
+    if (!id || skillFull(run)) return false;
+    var sk = D.skillById(id);
+    if (!sk || hasSkill(run, id)) return false;
+    var t = Math.max(1, Math.min(skillTierMax(run), tier || sk.tier || 1));
+    run.skills.push({ id: id, tier: t });
+    run.bookOffer = null;
+    run._mk = null;
+    pushLog(run, '得兵书 · ' + sk.name + '（' + ['铜', '银', '金'][t - 1] + '）。');
+    return true;
   }
 
   function benchSlots(run) { return CFG.benchBase + (mods(run).bench || 0); }
@@ -246,6 +301,9 @@
     dst.cd = 0;
     // 2 级二选一：规则进化（见 ITERATION.md §6）
     if (dst.level === 2 && !dst.evo && D.evoOptions(dst.k)) dst.pendingEvo = true;
+    // 兵书「借箭」：每次合成给该棋子永久多重释放
+    var mm = mods(run).mergeMulticast || 0;
+    if (mm > 0) dst.multicast = Math.min(3, (dst.multicast || 0) + mm);
     run.counters.merged++;
     if (dst.level > run.counters.best) run.counters.best = dst.level;
     var g = mods(run).mergeGold || 0;
@@ -315,6 +373,11 @@
     var opp = GB.AI.makeOpponent(run.day, run.seed);
     run.opp = opp;
     GB.Shop.roll(run);
+    // 新开一个兵书位 → 给一次三选一
+    if (skillSlots(run) > run.skills.length && !run.bookOffer) {
+      run.bookOffer = rollBooks(run);
+      if (run.bookOffer.length) pushLog(run, '兵书位开启 · 三选一。');
+    }
     if (!first) {
       var m = mods(run);
       var interest = Math.min(m.goldFac ? 6 : 3, Math.floor(run.gold / 10));
@@ -358,7 +421,8 @@
     return JSON.stringify({
       v: run.v, seed: run.seed, faction: run.faction, day: run.day, phase: run.phase,
       prestige: run.prestige, gold: run.gold, wins: run.wins, losses: run.losses,
-      board: run.board, bench: run.bench, cellsOwned: run.cellsOwned, skills: run.skills, offers: run.offers,
+      board: run.board, bench: run.bench, cellsOwned: run.cellsOwned, skills: run.skills,
+      bookOffer: run.bookOffer, offers: run.offers,
       rerollCount: run.rerollCount, log: run.log, counter: run.counters
     }, function (k, v) {
       if (k === 'def') return undefined;
@@ -432,6 +496,13 @@
     canMerge: canMerge,
     mergeInto: mergeInto,
     chooseEvo: chooseEvo,
+    skillSlots: skillSlots,
+    skillTierMax: skillTierMax,
+    skillPrice: skillPrice,
+    skillFull: skillFull,
+    hasSkill: hasSkill,
+    rollBooks: rollBooks,
+    chooseBook: chooseBook,
     pendingEvo: pendingEvo,
     checkHeroes: checkHeroes,
     shardProgress: shardProgress,

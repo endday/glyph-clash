@@ -1,4 +1,22 @@
 <template>
+  <div v-if="ui.books.offer.length" class="ov evo-ov">
+    <div class="card">
+      <header class="outcome">
+        <span class="bigseal win">书</span>
+        <span class="ot">
+          <b>兵书 · 三选一</b>
+          <em>构筑位 {{ ui.books.list.length }}/{{ ui.books.slots }} · 一本改一条规则，选完不换</em>
+        </span>
+      </header>
+      <div class="evos books3">
+        <button v-for="o in ui.books.offer" :key="o.id" class="evo-opt" @click="pickBook(o.id)">
+          <b>{{ o.ch }} {{ o.name }}<i class="tier">{{ ['铜','银','金'][o.tier - 1] }}</i></b>
+          <em>{{ o.desc }}</em>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <div v-if="ui.evo" class="ov evo-ov">
     <div class="card">
       <header class="outcome">
@@ -94,6 +112,11 @@ import { ui } from '../store.js'
 
 const m = computed(() => ui.modal)
 const GB = () => window.GB
+
+function pickBook(id) {
+  const g = GB()
+  if (g && g.UI && g.UI.chooseBook) g.UI.chooseBook(id)
+}
 
 function pickEvo(id) {
   const g = GB()
@@ -212,6 +235,9 @@ function onBack() {
 .p.muted { color: #8a7d6b; font-size: 10.5px; }
 
 .evos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.books3 { grid-template-columns: 1fr; }
+.evo-opt .tier { font-style: normal; font-size: 9px; margin-left: 5px; padding: 1px 5px;
+  border-radius: 999px; background: rgba(160, 122, 45, .18); color: #7a5c14; vertical-align: 2px; }
 .evo-opt { display: flex; flex-direction: column; gap: 3px; text-align: left; cursor: pointer;
   padding: 10px 11px; border-radius: 10px; min-width: 0;
   border: 1.5px solid rgba(160, 122, 45, .55);

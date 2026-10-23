@@ -40,18 +40,21 @@
   }
 
   function skillOffer(run, rnd) {
-    var owned = {};
-    run.skills.forEach(function (s) { owned[s.id] = true; });
-    var tmax = tierMax(run.day);
+    // 兵书＝遗物：槽位满了就不上架；档位受天数门禁；价格按档位
+    if (GB.Run.skillFull(run)) return null;
+    var tmax = GB.Run.skillTierMax(run);
     var pool = [];
     for (var id in D.SKILLS) {
-      if (!D.SKILLS.hasOwnProperty(id) || owned[id]) continue;
-      if (D.SKILLS[id].tier > tmax) continue;
+      if (!D.SKILLS.hasOwnProperty(id)) continue;
+      var sk = D.SKILLS[id];
+      if (sk.tier > tmax || GB.Run.hasSkill(run, id)) continue;
       pool.push(id);
     }
     if (!pool.length) return null;
     var k = pool[Math.floor(rnd() * pool.length)];
-    return { id: 'o' + (seq++), type: 'skill', skillId: k, price: D.SKILLS[k].price, sold: false };
+    var sk2 = D.SKILLS[k];
+    var tier = Math.min(tmax, sk2.tier || 1);
+    return { id: 'o' + (seq++), type: 'skill', skillId: k, tier: tier, price: GB.Run.skillPrice(tier), sold: false };
   }
 
   function enchOffer(run, rnd) {
@@ -69,9 +72,9 @@
 
   function makeOffer(run, rnd, forcePiece) {
     var r = forcePiece ? 0 : rnd();
-    if (r < 0.55) return pieceOffer(run, rnd) || skillOffer(run, rnd);
-    if (r < 0.83) return skillOffer(run, rnd) || pieceOffer(run, rnd);
-    return enchOffer(run, rnd) || pieceOffer(run, rnd);
+    if (r < 0.60) return pieceOffer(run, rnd) || skillOffer(run, rnd);
+    if (r < 0.88) return enchOffer(run, rnd) || pieceOffer(run, rnd);
+    return skillOffer(run, rnd) || pieceOffer(run, rnd);   // 兵书很少见（12%）
   }
 
   function roll(run) {
@@ -116,7 +119,7 @@
     if (offer.type === 'skill') {
       run.gold -= offer.price;
       offer.sold = true;
-      run.skills.push({ id: offer.skillId });
+      run.skills.push({ id: offer.skillId, tier: offer.tier || 1 });
       run._mk = null;
       GB.Run.pushLog(run, '得兵书 · ' + D.SKILLS[offer.skillId].name + '。');
       return { ok: true, skill: offer.skillId };

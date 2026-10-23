@@ -830,6 +830,17 @@
     return true;
   }
 
+  function chooseBook(id) {
+    if (!run || !id) return false;
+    var sk = D.skillById(id);
+    if (!sk) return false;
+    if (!GB.Run.chooseBook(run, id, Math.min(GB.Run.skillTierMax(run), sk.tier || 1))) return false;
+    GB.audio.hero();
+    toast('得兵书 · ' + sk.name, 'gold');
+    after();
+    return true;
+  }
+
   function closeShop() {
     shopOpen = false;
     if (root.GB && root.GB.storeBridge) { root.GB.storeBridge.setShop(false); return; }
@@ -878,6 +889,7 @@
     openShop: openShop,
     closeShop: closeShop,
     chooseEvo: chooseEvo,
+    chooseBook: chooseBook,
     buyOfferById: buyOfferById,
     useUltById: useUltById,
     renderDetail: renderDetail

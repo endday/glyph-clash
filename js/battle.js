@@ -17,7 +17,8 @@
   function auraValue(def, level) {
     var lv = Math.max(1, level || 1);
     if (def.aura === 'range' || def.aura === 'gold') return def.value;
-    return def.value * (1 + 0.4 * (lv - 1));
+    // 方格是 4 邻（六边形是 6 邻），相邻收益少约 1/3，这里补偿回来
+    return def.value * 1.3 * (1 + 0.4 * (lv - 1));
   }
 
   function mkPiece(src, side, b) {
@@ -151,8 +152,79 @@
     }
   }
 
+  // 兵书里「条件式」的那几条：开局按阵型算一次
+  function applyBooks(b) {
+    if (!b.books || !b.books.length) return;
+    var list = b.p;
+    var units = 0, big = 0, lvl3 = 0, used = 0;
+    var minC = 99, maxC = -1;
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i];
+      if (!p.alive || p.structure) continue;
+      units++;
+      var def = p.def;
+      if ((def.size || 1) >= 4) big++;
+      if ((p.level || 1) >= 3) lvl3++;
+      used += (def.size || 1);
+      for (var j = 0; j < (p.cells || []).length; j++) {
+        if (p.cells[j].c < minC) minC = p.cells[j].c;
+        if (p.cells[j].c > maxC) maxC = p.cells[j].c;
+      }
+    }
+    var empty = Math.max(0, (b.ownedCells || 0) - used);
+    var frontRow = b.frontRowP || 4;
+
+    for (var k = 0; k < b.books.length; k++) {
+      var bk = b.books[k], when = bk.def.when, give = bk.def.give;
+      if (!when || !give) continue;
+      var tier = bk.tier;
+      var stacks = 1;
+      if (when.maxUnits !== undefined && units > when.maxUnits) continue;
+      if (when.perBig) stacks = big;
+      if (when.perLevel3) stacks = lvl3;
+      if (when.perEmpty) stacks = Math.min(when.cap || 6, empty);
+      if (stacks <= 0) continue;
+
+      for (var gk in give) {
+        if (!give.hasOwnProperty(gk)) continue;
+        var v = (D.skillValue ? D.skillValue(give[gk], tier) : give[gk]) * stacks;
+        if (gk === 'atkMul') {
+          for (i = 0; i < list.length; i++) {
+            var q = list[i];
+            if (!q.alive || q.structure) continue;
+            if (when.leftmost && q.cells && q.cells.length) {
+              var qmin = 99;
+              for (j = 0; j < q.cells.length; j++) if (q.cells[j].c < qmin) qmin = q.cells[j].c;
+              if (qmin !== minC) continue;
+            }
+            q.raw.dmg *= (1 + v);
+          }
+        } else if (gk === 'spdMul') {
+          for (i = 0; i < list.length; i++) {
+            var q2 = list[i];
+            if (!q2.alive || q2.structure) continue;
+            q2.raw.spdMul += v;
+          }
+        } else if (gk === 'armor') {
+          for (i = 0; i < list.length; i++) {
+            var q3 = list[i];
+            if (!q3.alive || q3.structure) continue;
+            var onFront = false;
+            for (j = 0; j < (q3.cells || []).length; j++) if (q3.cells[j].r === frontRow) onFront = true;
+            if (onFront) q3.armor = Math.max(q3.armor || 0, v);
+          }
+        } else if (gk === 'healToShield') {
+          b.healToShield = Math.max(b.healToShield || 0, v);
+        }
+      }
+    }
+    // 重新套用（raw 改过了）
+    for (i = 0; i < list.length; i++) applyAura(list[i]);
+  }
+
   function stats(b) {
     baseStats(b);
+    applyBooks(b);
     refreshAuras(b);
   }
 
@@ -173,7 +245,8 @@
       status: 'run',
       autoUlt: o.autoUlt !== false,
       stats: { dmgP: 0, dmgO: 0, killsP: 0, killsO: 0, gold: 0 },
-      lastStandP: false, lastStandO: false
+      lastStandP: false, lastStandO: false,
+      books: []
     };
     var i, piece;
     for (i = 0; i < (o.piecesP || []).length; i++) {
@@ -184,7 +257,16 @@
       piece = mkPiece(o.piecesO[i], 'o', b);
       if (piece) b.e.push(piece);
     }
+    // 兵书（遗物）：只作用于玩家一侧
+    var books = o.booksP || [];
+    for (i = 0; i < books.length; i++) {
+      var bkDef = D.skillById ? D.skillById(books[i].id) : D.skills;
+      if (!bkDef) continue;
+      b.books.push({ id: books[i].id, tier: books[i].tier || bkDef.tier || 1, def: bkDef });
+    }
     stats(b);
+    b.startHpP = sumHp(b.p) || 1;
+    b.startHpO = sumHp(b.e) || 1;
     rebuildHooks(b);
     return b;
   }
@@ -222,6 +304,21 @@
   // 谁对哪类事件感兴趣（棋子阵亡后要重建）
   function rebuildHooks(b) {
     b.hooks = {};
+    // 兵书（遗物）挂在玩家一侧，没有位置概念（scope 只有 team 有意义）
+    for (var bi = 0; bi < (b.books || []).length; bi++) {
+      var bk = b.books[bi];
+      if (!bk.def.on) continue;
+      var fake = {
+        book: bk, side: 'p', alive: true, structure: true, cells: null,
+        def: { limits: bk.def.limits, on: bk.def.on, ch: bk.def.ch, role: 'book' },
+        on: bk.def.on, isBook: true
+      };
+      for (var bkType in bk.def.on) {
+        if (!bk.def.on.hasOwnProperty(bkType)) continue;
+        if (!b.hooks[bkType]) b.hooks[bkType] = [];
+        b.hooks[bkType].push(fake);
+      }
+    }
     var lists = [b.p, b.e];
     for (var s = 0; s < lists.length; s++) {
       for (var i = 0; i < lists[s].length; i++) {
@@ -267,13 +364,20 @@
   // 燃烧可叠加（这是循环的收益来源），上限 = 目标最大生命的 8%/秒
   function applyBurn(b, tgt, dmg, dur) {
     if (!tgt || !tgt.alive || tgt.structure) return;
-    var cap = (tgt.maxHp || 1000) * 0.10;
+    var cap = (tgt.maxHp || 1000) * 0.13;
     tgt.burnDps = Math.min((tgt.burnDps || 0) + dmg, cap);
     tgt.burnUntil = Math.max(tgt.burnUntil, b.t + (dur || 2.5));
   }
 
+  // 兵书的 v 是 [铜,银,金]，按档位取值
+  function specV(p, spec) {
+    if (p.isBook) return D.skillValue ? D.skillValue(spec.v, p.book.tier) : spec.v;
+    return spec.v;
+  }
+
   function runHook(b, p, ev, spec) {
     var src = ev.src, tgt = ev.tgt;
+    if (p.isBook && spec.scope !== 'team') return;
     if (spec.scope === 'team' && ev.side !== p.side) return;
     if (spec.scope === 'self' && p !== src) return;
     if (spec.scope === 'adjacent') {
@@ -286,7 +390,7 @@
     var i, a, list;
     if (spec.do === 'burn') {
       if (!tgt || tgt.side === p.side) return;
-      applyBurn(b, tgt, (ev.dmg || p.dmg) * spec.v, spec.dur);
+      applyBurn(b, tgt, (ev.dmg || p.dmg) * specV(p, spec), spec.dur);
       emit(b, 'trigger', { src: p, tgt: tgt, depth: ev.depth + 1 });
       return;
     }
@@ -298,11 +402,11 @@
     }
     if (spec.do === 'chain') {
       if (!tgt) return;
-      list = alliesAround(b, tgt, 1.6).slice(0, spec.n || 2);
+      list = alliesAround(b, tgt, 1.6).slice(0, specV(p, spec) || 2);
       for (i = 0; i < list.length; i++) {
         a = list[i];
         if (a.side === p.side) continue;
-        hit(b, p, a, (ev.dmg || p.dmg) * spec.v, p.side === 'p', ev.depth + 1);
+        hit(b, p, a, (ev.dmg || p.dmg) * specV(p, spec), p.side === 'p', ev.depth + 1);
       }
       emit(b, 'trigger', { src: p, tgt: tgt, depth: ev.depth + 1 });
       return;
@@ -312,7 +416,7 @@
       list = alliesAround(b, tgt, 1.6);
       for (i = 0; i < list.length; i++) {
         a = list[i];
-        if (a.side === tgt.side) applyBurn(b, a, (ev.dmg || 0) * (spec.v || 0.5), 2.5);
+        if (a.side === tgt.side) applyBurn(b, a, (ev.dmg || 0) * (specV(p, spec) || 0.5), 2.5);
       }
       emit(b, 'trigger', { src: p, tgt: tgt, depth: ev.depth + 1 });
       return;
@@ -354,13 +458,22 @@
       emit(b, 'trigger', { src: p, tgt: tgt, depth: ev.depth + 1 });
       return;
     }
+    if (spec.do === 'rerollHit') {
+      // 连弩：命中后按概率立刻再打一次（深度 +1，受上限约束）
+      if (!src || !src.alive || src.structure) return;
+      if (spec.arcOnly && !src.arc) return;
+      if (!tgt || !tgt.alive) return;
+      if (b.rng() >= specV(p, spec)) return;
+      hit(b, src, tgt, ev.dmg || src.dmg, src.side === 'p', ev.depth + 1);
+      return;
+    }
     if (spec.do === 'haste') {
       list = allyList(b, p);
       for (i = 0; i < list.length; i++) {
         a = list[i];
         if (!a.alive) continue;
         a.hasteUntil = Math.max(a.hasteUntil || 0, b.t + (spec.dur || 2));
-        a.hasteMul = Math.max(a.hasteMul || 0, spec.v || 0.35);
+        a.hasteMul = Math.max(a.hasteMul || 0, specV(p, spec) || 0.35);
       }
       return;
     }
@@ -410,12 +523,8 @@
     return out;
   }
 
-  // 六边形距离（odd-r 偏移坐标 → 轴向）
-  function hexDist(a, z) {
-    var aq = a.c - Math.floor(a.r / 2), zq = z.c - Math.floor(z.r / 2);
-    var dq = aq - zq, dr = a.r - z.r;
-    return Math.max(Math.abs(dq), Math.abs(dr), Math.abs(dq + dr));
-  }
+  // 方格距离：Chebyshev（方形扩散圈）
+  function cellDist(a, z) { return MAP.cellDist(a, z); }
 
   // 溅射：以命中点为中心扩一圈，按距离衰减，总体最多 splashCap 格
   function splashTargets(b, p, e) {
@@ -424,7 +533,7 @@
     for (var i = 0; i < list.length; i++) {
       var a = list[i];
       if (!a.alive || a === e || a.structure) continue;
-      var d = hexDist(e, a);
+      var d = cellDist(e, a);
       if (d <= p.splash) near.push({ u: a, d: d });
     }
     near.sort(function (x, z) { return x.d - z.d; });
@@ -507,6 +616,7 @@
     if (unitsLeft(b.p) === 0) { b.status = 'lose'; return; }
     if (unitsLeft(b.e) === 0) { b.status = 'win'; return; }
     if (b.t >= CFG.battleTime) {
+      // 超时比剩余总血量（试过按百分比比，结果养出「龟缩流」，回退）
       var hpP = sumHp(b.p), hpO = sumHp(b.e);
       b.status = hpP > hpO ? 'win' : (hpP < hpO ? 'lose' : 'draw');
       if (b.status === 'draw') b.status = b.stats.dmgP >= b.stats.dmgO ? 'win' : 'lose';
@@ -592,7 +702,12 @@
       if (!allies.length) return;
       allies.sort(function (a, z) { return (a.hp / a.maxHp) - (z.hp / z.maxHp); });
       var t = allies[0];
+      var before = t.hp;
       t.hp = Math.min(t.maxHp, t.hp + p.heal);
+      if (b.healToShield > 0 && t.hp > before) {
+        var over = (before + p.heal) - t.maxHp;
+        if (over > 0) t.shield = Math.min(t.maxHp * 0.6, t.shield + over * b.healToShield);
+      }
       t.healT = 1;
       if (p.def.emits === 'trigger') emit(b, 'trigger', { src: p, tgt: t, depth: 0 });
       b.events.push({ type: 'heal', x1: p.x, y1: p.y, x2: t.x, y2: t.y, side: p.side });
@@ -621,8 +736,12 @@
     var tg = pickTargets(b, p);
     if (!tg.length) { p.cd = Math.min(p.cd, p.atk * 0.35); return; }
 
+    var reps = 1 + (p.multicast || 0);
     for (var k = 0; k < tg.length; k++) {
       var e = tg[k];
+      for (var rp = 1; rp < reps; rp++) {
+        hit(b, p, e, p.dmg * 0.7, isP);     // 多重释放：后续几发七成伤害
+      }
       b.shots.push({
         x1: p.x, y1: p.y, x2: e.x, y2: e.y,
         t: 0, dur: p.arc ? 0.26 : 0.16,

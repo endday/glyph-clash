@@ -9,11 +9,15 @@
     maxDays: 10,
     startGold: 15,          // 对齐大巴扎：15 金开局、7 收入/天
     benchBase: 4,          // 备战席（开局只有 4 格，藏兵 +2）
+    // 兵书＝遗物：槽位少、稀有度高、靠里程碑三选一（见 ITERATION.md 计划 v2）
+    skillSlots: [2, 4, 6],      // 第 2 / 4 / 6 天各开一个构筑位
+    skillPrice: [12, 20, 32],   // 铜 / 银 / 金 的商店价（贵过任何同格数棋子）
+    skillTierDay: [1, 3, 6],    // 铜随时 / 银第 3 天 / 金第 6 天
     maxLevel: 5,
     rerollCost: 2,
     offersBase: 4,
     incomeBase: 7,
-    battleTime: 55,
+    battleTime: 45,           // 大件血池更厚，缩短上限避免「拖到超时比血」
     hpScale: 1.6,           // 血条基准：3.0 太肉（16 下才死人），1.0 又太快，取中间
     ultCharge: 14,
     lastStandAt: 0.30,
@@ -21,11 +25,11 @@
     splashMul: [1, 0.5, 0.28],   // 溅射衰减：中心 → 邻格 → 再外一圈
     pierceMul: [1, 0.6, 0.38],   // 穿透衰减：本排 → 后一排 → 后两排
     splashCap: 3,               // 一次最多命中 3 格
-    cellsStart: 4,              // 开局背包格（大巴扎也是 4 格起）
-    cellsMax: 9,                // 最多 9 格（半场物理上有 22 格，剩下的永远锁着）
+    cellsStart: 12,             // 开局背包格（前排中央 4×3 方块）
+    cellsMax: 22,               // 最多 22 格（半场物理上有 32 格，最外圈永远锁着）
     // 解锁第 n 格的价格。曲线参考 TFT 升级 XP（6/10/20/36/48/76，约每级 ×1.6~1.8），
     // 按一局买 5 次的体量缩放：4 / 7 / 12 / 20 / 32
-    expandPrices: [4, 7, 12, 20, 32],
+    expandPrices: [6, 9, 13, 18, 24],   // 5 次扩建 ×2 格，合计 70 金
     // 事件总线（见 ITERATION.md）：防无限循环
     events: {
       maxDepth: 3,        // 连锁深度上限
@@ -57,10 +61,10 @@
   // splash= 溅射：命中后向周围扩散，最多 3 格，按距离衰减
   var PIECES = {
     dao: {
-      id: 'dao', ch: '刀', name: '刀客', size: 1, tier: 1, price: 3, role: 'melee',
+      id: 'dao', ch: '刀', name: '刀客', size: 4, tier: 1, price: 10, role: 'melee',
       kind: 'unit',
-      hp: 900, dmg: 170, atk: 4.0, range: 1,
-      desc: '战斗单位。稳定制造「命中」事件——所有连锁的起点。'
+      hp: 3600, dmg: 680, atk: 4.0, range: 1,
+      desc: '核心战斗单位（2×2）。稳定制造「命中」事件——所有连锁的起点。'
     },
     qiang: {
       id: 'qiang', legacy: true, ch: '枪', name: '枪手', size: 2, tier: 1, price: 5, role: 'melee',
@@ -68,19 +72,19 @@
       desc: '长兵·穿透。够得着最前排，同列还能捅穿到后一排（六成伤害）。'
     },
     gong: {
-      id: 'gong', ch: '弓', name: '弓手', size: 2, tier: 1, price: 5, role: 'arc',
+      id: 'gong', ch: '弓', name: '弓手', size: 4, tier: 1, price: 10, role: 'arc',
       kind: 'unit',
-      hp: 520, dmg: 150, atk: 4.5, range: 4, arc: true,
-      desc: '战斗单位。越过前排打最后排，用来点名对面的引擎。'
+      hp: 2080, dmg: 600, atk: 4.5, range: 4, arc: true,
+      desc: '核心远程（2×2）。越过前排打最后排，用来点名对面的引擎。'
     },
     qi: {
-      id: 'qi', legacy: true, ch: '骑', name: '骑将', size: 3, tier: 2, price: 7, role: 'tank',
-      hp: 1400, dmg: 310, atk: 5.5, range: 1, splash: 1,
+      id: 'qi', ch: '骑', name: '骑将', size: 6, tier: 2, price: 15, role: 'tank', kind: 'unit',
+      hp: 5400, dmg: 1240, atk: 5.5, range: 1, splash: 1,
       desc: '近战·横扫。一撞打到左右三格（外侧减伤），血最厚。'
     },
     jiang: {
-      id: 'jiang', legacy: true, ch: '将', name: '将台', size: 3, tier: 3, price: 9, role: 'arc',
-      hp: 1900, dmg: 440, atk: 4.0, range: 3, arc: true, splash: 1,
+      id: 'jiang', ch: '将', name: '将台', size: 9, tier: 3, price: 22, role: 'arc', kind: 'unit',
+      hp: 8100, dmg: 1860, atk: 4.0, range: 3, arc: true, splash: 1,
       desc: '抛射·溅射。砸中后排，落点周围一圈按距离衰减。'
     },
     yi: {
@@ -92,9 +96,9 @@
       desc: '触发器。每 5 秒治疗一次，同时向全场广播「触发」事件。'
     },
     dun: {
-      id: 'dun', ch: '盾', name: '盾卫', size: 2, tier: 1, price: 5, role: 'support',
+      id: 'dun', ch: '盾', name: '盾卫', size: 2, tier: 1, price: 7, role: 'support',
       kind: 'unit',
-      hp: 1150, shield: 380, atk: 6.0, range: 2,
+      hp: 2300, shield: 760, atk: 6.0, range: 2,
       desc: '战斗单位。每 6 秒给射程内友军套护盾，负责把引擎护住。'
     },
     gu: {
@@ -111,9 +115,9 @@
       desc: '转换器。命中即减速，把「命中」换成「拖节奏」。'
     },
     lei: {
-      id: 'lei', ch: '雷', name: '雷术师', size: 2, tier: 2, price: 6, role: 'mid',
+      id: 'lei', ch: '雷', name: '雷术师', size: 2, tier: 2, price: 7, role: 'mid',
       kind: 'trigger',
-      hp: 580, dmg: 200, atk: 5.0, range: 4,
+      hp: 1160, dmg: 400, atk: 5.0, range: 4,
       on: { hit: { scope: 'self', do: 'chain', v: 0.5, n: 2 } },
       limits: { rate: 3 },
       desc: '触发器。命中时把伤害连锁给旁边两个人。'
@@ -121,11 +125,11 @@
 
     /* ---- 门派专属 ---- */
     huo: {
-      id: 'huo', ch: '火', name: '火术师', size: 2, tier: 2, price: 6, role: 'arc', faction: 'dongwu',
+      id: 'huo', ch: '火', name: '火术师', size: 2, tier: 2, price: 7, role: 'arc', faction: 'dongwu',
       kind: 'convert',
-      hp: 580, dmg: 200, atk: 6.0, range: 4, arc: true, splash: 1,
+      hp: 1160, dmg: 400, atk: 6.0, range: 4, arc: true, splash: 1,
       // 相邻友军命中 → 给目标挂燃烧（燃烧循环的入口）
-      on: { hit: { scope: 'adjacent', do: 'burn', v: 0.45, dur: 3.5 } },
+      on: { hit: { scope: 'adjacent', do: 'burn', v: 0.55, dur: 3.5 } },
       limits: { rate: 4 },
       desc: '转换器。相邻友军命中时，给目标附加燃烧。'
     },
@@ -176,8 +180,8 @@
       desc: '光环：相邻棋子射程 +1。'
     },
     liuma: {
-      id: 'liuma', legacy: true, ch: '马', name: '流马', size: 3, tier: 2, price: 7, role: 'tank', faction: 'wolong',
-      hp: 1200, dmg: 200, atk: 4.0, range: 3,
+      id: 'liuma', legacy: true, ch: '马', name: '流马', size: 4, tier: 2, price: 11, role: 'tank', faction: 'wolong',
+      hp: 2600, dmg: 460, atk: 4.0, range: 3,
       desc: '中排。血不薄，却能隔空输出。'
     }
   };
@@ -234,7 +238,7 @@
       id: 'flag_burn', ch: '烽', name: '火盆旗', size: 1, tier: 2, price: 5, role: 'flag',
       kind: 'engine',
       // 燃烧跳伤 → 把燃烧扩散给旁边的敌人
-      on: { burn_tick: { scope: 'team', do: 'spread', v: 0.5 } },
+      on: { burn_tick: { scope: 'team', do: 'spread', v: 0.7 } },
       limits: { rate: 1 },
       desc: '引擎。敌人被燃烧灼伤时，把燃烧扩散给它旁边的敌人（每秒最多 1 次）。'
     },
@@ -304,27 +308,27 @@
     dongwu: {
       id: 'dongwu', name: '江东火', hero: '周瑜', promise: '一把火，烧穿整条战线',
       desc: '灼烧伤害 +40%。', passive: 'burn', color: '#b03a2e',
-      pieces: ['huo', 'feng'], start: ['dao', 'huo', 'flag_dmg']
+      pieces: ['huo', 'feng'], start: ['dao']
     },
     taozhu: {
       id: 'taozhu', name: '陶朱商', hero: '范蠡', promise: '前三日最弱，后七日用钱买出一面阵',
       desc: '每场 +3 金，利息上限翻倍。', passive: 'gold', color: '#a9812f',
-      pieces: ['jin', 'piao'], start: ['dao', 'jin', 'yi']
+      pieces: ['jin', 'piao'], start: ['dao']
     },
     mojia: {
       id: 'mojia', name: '墨家机', hero: '墨子', promise: '机器互相喂养，越摆越强',
       desc: '所有光环效果 +25%。', passive: 'aura', color: '#3f6b57',
-      pieces: ['ji', 'nu'], start: ['dao', 'ji', 'gong']
+      pieces: ['ji', 'nu'], start: ['dao']
     },
     miaoyu: {
       id: 'miaoyu', name: '苗疆蛊', hero: '蛊师', promise: '先挨打，再让你慢慢烂掉',
       desc: '中毒可叠 3 层。', passive: 'poison', color: '#5d7a3a',
-      pieces: ['du', 'lu'], start: ['dao', 'du', 'yi']
+      pieces: ['du', 'lu'], start: ['dao']
     },
     wolong: {
       id: 'wolong', name: '卧龙阵', hero: '诸葛亮', promise: '你够不着我，我却够得着你',
       desc: '所有抛物线棋子射程 +1。', passive: 'range', color: '#40546e',
-      pieces: ['lou', 'liuma'], start: ['gong', 'lou', 'dao']
+      pieces: ['lou', 'liuma'], start: ['dao']
     }
   };
 
@@ -353,23 +357,98 @@
   }());
 
   /* ---------------- 兵书 ---------------- */
+  // 兵书 = 遗物：一条效果改变一条规则，value 按 [铜, 银, 金] 三档缩放
+  //   when  = 触发条件（battle 里判定）
+  //   give  = 效果（数组 = 按档位取值）
+  //   on    = 事件钩子（走事件总线）
   var SKILLS = {
-    tuntian: { id: 'tuntian', ch: '屯', name: '屯田', tier: 1, price: 6, desc: '每场结束 +5 金。', fx: { income: 5 } },
-    jiejian: { id: 'jiejian', ch: '箭', name: '借箭', tier: 1, price: 5, desc: '每次合成 +2 金。', fx: { mergeGold: 2 } },
-    wenjiu: { id: 'wenjiu', ch: '温', name: '温酒', tier: 1, price: 5, desc: '卖出返还全额。', fx: { sellFull: true } },
-    cangbing: { id: 'cangbing', ch: '藏', name: '藏兵', tier: 1, price: 4, desc: '备战席 +2。', fx: { bench: 2 } },
-    tianji: { id: 'tianji', ch: '机', name: '天机', tier: 2, price: 7, desc: '集市 +1 货位。', fx: { shopSlot: 1 } },
-    caochuan: { id: 'caochuan', ch: '船', name: '草船', tier: 2, price: 7, desc: '刷新必出棋子。', fx: { alwaysUnit: true } },
-    tiebi: { id: 'tiebi', ch: '壁', name: '铁壁', tier: 3, price: 10, desc: '全军血量 +12%。', fx: { hp: 0.12 } },
-    jinlin: { id: 'jinlin', ch: '鳞', name: '金鳞', tier: 1, price: 6, desc: '击杀 +1 金（每场上限 15）。', fx: { killGold: 1, killCap: 15 } },
-    poshu: { id: 'poshu', ch: '破', name: '势如破竹', tier: 2, price: 8, desc: '每个 5 级棋子，全军攻击 +6%。', fx: { rupture: 0.06 } },
-    bingsu: { id: 'bingsu', ch: '速', name: '兵贵神速', tier: 1, price: 6, desc: '开局 15 秒攻速 +40%。', fx: { openingRush: 0.4 } },
-    jifeng: { id: 'jifeng', ch: '疾', name: '疾风', tier: 2, price: 8, desc: '全军攻速 +10%。', fx: { spd: 0.10 } },
-    changqu: { id: 'changqu', ch: '驱', name: '长驱', tier: 3, price: 9, desc: '全军攻击 +15%。', fx: { dmg: 0.15 } },
-    kongcheng: { id: 'kongcheng', ch: '空', name: '空城', tier: 3, price: 9, desc: '前排受伤 −25%。', fx: { frontArmor: 0.25 } },
-    lianu: { id: 'lianu', ch: '弩', name: '连弩', tier: 2, price: 7, desc: '抛物线棋子攻速 +25%。', fx: { arcSpd: 0.25 } },
-    tieqi: { id: 'tieqi', ch: '骑', name: '铁骑', tier: 2, price: 7, desc: '前排棋子血量 +20%。', fx: { tankHp: 0.2 } },
-    miaoshou: { id: 'miaoshou', ch: '妙', name: '妙手', tier: 2, price: 7, desc: '治疗效果 +50%。', fx: { healBoost: 0.5 } }
+    /* ---- 构筑条件类 ---- */
+    beishui: {
+      id: 'beishui', ch: '水', name: '背水', tier: 1, when: { maxUnits: 4 },
+      give: { spdMul: [0.20, 0.30, 0.40] },
+      desc: '棋子数 ≤4 时，全队攻速 +20/30/40%（少而精）'
+    },
+    changqu: {
+      id: 'changqu', ch: '驱', name: '长驱', tier: 1, when: { perBig: true },
+      give: { atkMul: [0.06, 0.09, 0.12] },
+      desc: '每有一枚 4 格以上的棋子，全队攻击 +6/9/12%'
+    },
+    poshu: {
+      id: 'poshu', ch: '破', name: '势如破竹', tier: 2, when: { perLevel3: true },
+      give: { atkMul: [0.08, 0.12, 0.16] },
+      desc: '每有一枚 3 级以上的棋子，全队攻击 +8/12/16%'
+    },
+    kongcheng: {
+      id: 'kongcheng', ch: '空', name: '空城', tier: 2, when: { perEmpty: true, cap: 6 },
+      give: { atkMul: [0.04, 0.06, 0.08] },
+      desc: '每有 1 格空位，全队攻击 +4/6/8%（最多算 6 格）'
+    },
+    /* ---- 位置类 ---- */
+    tiebi: {
+      id: 'tiebi', ch: '壁', name: '铁壁', tier: 1, when: { frontRow: true },
+      give: { armor: [0.15, 0.22, 0.30] },
+      desc: '最前排受到的伤害 −15/22/30%'
+    },
+    zuofeng: {
+      id: 'zuofeng', ch: '锋', name: '左锋', tier: 2, when: { leftmost: true },
+      give: { atkMul: [0.30, 0.45, 0.60] },
+      desc: '最左列的棋子攻击 +30/45/60%'
+    },
+    /* ---- 事件规则类 ---- */
+    lianu: {
+      id: 'lianu', ch: '弩', name: '连弩', tier: 2,
+      on: { hit: { scope: 'team', do: 'rerollHit', v: [0.30, 0.45, 0.60], arcOnly: true } },
+      limits: { rate: 3 },
+      desc: '抛射棋子命中时，有 30/45/60% 概率立刻再打一次'
+    },
+    jifeng: {
+      id: 'jifeng', ch: '疾', name: '疾风', tier: 1,
+      on: { trigger: { scope: 'team', do: 'haste', v: [0.15, 0.22, 0.30], dur: 2 } },
+      limits: { rate: 3 },
+      desc: '每次「触发」发生时，全队加速 15/22/30% 持续 2 秒'
+    },
+    liaoyuan: {
+      id: 'liaoyuan', ch: '燎', name: '燎原', tier: 3,
+      on: { burn_tick: { scope: 'team', do: 'spread', v: [0.25, 0.35, 0.45] } },
+      limits: { rate: 2 },
+      desc: '敌人被燃烧灼伤时，有 25/35/45% 强度再扩散一次'
+    },
+    miaoshou: {
+      id: 'miaoshou', ch: '妙', name: '妙手', tier: 2, when: { healOverflow: true },
+      give: { healToShield: [0.40, 0.60, 0.80] },
+      desc: '治疗溢出转化为等量护盾的 40/60/80%'
+    },
+    jiejian: {
+      id: 'jiejian', ch: '箭', name: '借箭', tier: 2, when: { onMerge: true },
+      give: { mergeMulticast: [1, 1, 2], mergeGold: [1, 2, 3] },
+      desc: '每次合成：该棋子永久 +1 层多重释放（上限 3），并 +1/2/3 金'
+    },
+    /* ---- 经济 / 全局类（不进战斗，走 run.mods） ---- */
+    tuntian: {
+      id: 'tuntian', ch: '屯', name: '屯田', tier: 1, when: { battleEnd: true },
+      give: { goldPerBig: [3, 4, 5] },
+      desc: '每场结束，每枚 4 格以上的棋子 +3/4/5 金'
+    },
+    wenjiu: {
+      id: 'wenjiu', ch: '温', name: '温酒', tier: 1,
+      give: { sellFull: [1, 1, 1] },
+      desc: '卖出返还全额；卖出的棋子给同类棋子 +2% 攻击（永久叠加）'
+    },
+    cangbing: {
+      id: 'cangbing', ch: '藏', name: '藏兵', tier: 1,
+      give: { bench: [2, 3, 4] },
+      desc: '备战席 +2/3/4'
+    },
+    tianji: {
+      id: 'tianji', ch: '机', name: '天机', tier: 2,
+      give: { shopSlot: [1, 1, 2], freeReroll: [1, 1, 2] },
+      desc: '集市 +1 货位，且每天前 1/1/2 次刷新免费'
+    },
+    caochuan: {
+      id: 'caochuan', ch: '船', name: '草船', tier: 3,
+      give: { alwaysUnit: [1, 1, 1], shopDiscount: [1, 2, 3] },
+      desc: '刷新必出棋子，且棋子便宜 1/2/3 金'
+    }
   };
 
   /* ---------------- 附魔 ---------------- */
@@ -392,8 +471,8 @@
     4: ['huo'],
     5: ['dun', 'nu'],
     6: ['feng', 'lei'],
-    7: [],
-    8: []
+    7: ['qi'],
+    8: ['jiang']
   };
 
   function pieceById(id) { return PIECES[id] || FLAGS[id] || null; }
@@ -433,6 +512,15 @@
     return m;
   }());
 
+  // 兵书按档位取值：value 可能是数字或 [铜,银,金]
+  function skillValue(v, tier) {
+    if (v === undefined || v === null) return 0;
+    if (typeof v === 'number') return v;
+    return v[Math.max(0, Math.min(2, (tier || 1) - 1))];
+  }
+
+  function skillById(id) { return SKILLS[id] || null; }
+
   function evoOptions(id) { return EVOLVE[id] || null; }
   function evoDef(id, evoId) {
     var list = EVOLVE[id];
@@ -445,6 +533,7 @@
     CFG: CFG, LVL: LVL, ULTS: ULTS, ROLE_ULT: ROLE_ULT, PIECES: PIECES, FLAGS: FLAGS, FACTIONS: FACTIONS,
     HEROES: HEROES, SKILLS: SKILLS, ENCHANTS: ENCHANTS, UNLOCK: UNLOCK,
     pieceById: pieceById, poolFor: poolFor, heroByChar: heroByChar,
-    EVOLVE: EVOLVE, evoOptions: evoOptions, evoDef: evoDef
+    EVOLVE: EVOLVE, evoOptions: evoOptions, evoDef: evoDef,
+    skillById: skillById, skillValue: skillValue
   };
 }(typeof window !== 'undefined' ? window : globalThis));

@@ -58,6 +58,9 @@
       modsO: opp.mods,
       factionP: run.faction,
       factionO: opp.faction,
+      booksP: run.skills,
+      ownedCells: GB.Run.cellsN(run),
+      frontRowP: GB.MAP.frontRow('p'),
       autoUlt: autoUlt,
       seed: (run.seed + run.day * 977) | 0
     });

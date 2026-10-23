@@ -5,7 +5,7 @@
   var MAP = GB.MAP, D = GB.D, U = GB.U;
 
   var cv = null, ctx = null;
-  var hexW = 56, W = 0, H = 0, ox = 0, oy = 0, dpr = 1;
+  var cw = 48, W = 0, H = 0, ox = 0, oy = 0, dpr = 1;   // cw = 单格边长
   var bg = null, noise = null;
   var run = null, battle = null, view = { drag: null, hover: null };
   var showEnemy = false;
@@ -67,14 +67,14 @@
     var aw = Math.max(240, wrap.clientWidth || root.innerWidth);
     var ah = wrap.clientHeight || 0;
     if (!ah || ah < 160) ah = root.innerHeight * (showEnemy ? 0.55 : 0.32);
-    var rows = showEnemy ? 8.2 : 4.3;
-    hexW = Math.floor(Math.min(aw / 7.4, ah / rows));
-    hexW = Math.max(22, Math.min(hexW, 132));
-    W = Math.round(7.0 * hexW);
-    H = Math.round((showEnemy ? 7.9 : 4.2) * hexW);
+    var rows = showEnemy ? MAP.ROWS + 0.5 : 4.2;
+    cw = Math.floor(Math.min(aw / (MAP.COLS + 0.5), ah / rows));
+    cw = Math.max(16, Math.min(cw, 120));
+    W = Math.round(MAP.COLS * cw);
+    H = Math.round((showEnemy ? MAP.ROWS : 4) * cw);
     ox = W / 2;
-    // 晨市只显示我方半场，把视角下移
-    oy = showEnemy ? H / 2 : (H / 2 - 1.75 * hexW);
+    // 晨市只显示我方半场（行 4~7），此时不需要下移
+    oy = showEnemy ? H / 2 : 0;
     dpr = Math.min(2.5, root.devicePixelRatio || 1);
     cv.style.width = W + 'px';
     cv.style.height = H + 'px';
@@ -84,17 +84,32 @@
     buildBg();
   }
 
-  function px(x) { return ox + x * hexW; }
-  function py(y) { return oy + y * hexW; }
-  function toUnit(sx, sy) { return { x: (sx - ox) / hexW, y: (sy - oy) / hexW }; }
+  function px(x) { return ox + x * cw; }
+  function py(y) { return oy + y * cw; }
+  function toUnit(sx, sy) { return { x: (sx - ox) / cw, y: (sy - oy) / cw }; }
 
-  function hexPath(g, cx, cy, r) {
+  // 圆角矩形：左上角 (x,y) + 宽高
+  function rectPath(g, x, y, w, h, rad) {
+    var r = Math.max(2, Math.min(rad || 4, Math.min(w, h) / 2));
     g.beginPath();
-    for (var i = 0; i < 6; i++) {
-      var a = Math.PI / 180 * (60 * i - 90);
-      var x = cx + r * Math.cos(a), y = cy + r * Math.sin(a);
-      if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
-    }
+    g.moveTo(x + r, y);
+    g.arcTo(x + w, y, x + w, y + h, r);
+    g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r);
+    g.arcTo(x, y, x + w, y, r);
+    g.closePath();
+  }
+
+  // 圆角方块：以 (cx,cy) 为中心、半径 r（r = 半格边长）
+  function sqPath(g, cx, cy, r) {
+    var rad = Math.max(2, r * 0.22);
+    var x = cx - r, y = cy - r, w = r * 2, h = r * 2;
+    g.beginPath();
+    g.moveTo(x + rad, y);
+    g.arcTo(x + w, y, x + w, y + h, rad);
+    g.arcTo(x + w, y + h, x, y + h, rad);
+    g.arcTo(x, y + h, x, y, rad);
+    g.arcTo(x, y, x + w, y, rad);
     g.closePath();
   }
 
@@ -106,13 +121,13 @@
     g.fillStyle = '#e9dfc7';
     g.fillRect(0, 0, W, H);
 
-    var s = hexW / Math.sqrt(3), i, c;
+    var s = cw / 2, i, c;
     var owned = GB.Run && GB.Run.ownedSet && run ? GB.Run.ownedSet(run) : null;
     for (i = 0; i < MAP.CELLS.length; i++) {
       c = MAP.CELLS[i];
       if (!showEnemy && c.zone === 'e') continue;
       var mine = c.zone !== 'p' || !owned || !!owned[MAP.key(c.q, c.r)];
-      hexPath(g, px(c.x), py(c.y), s * 0.99);
+      sqPath(g, px(c.x), py(c.y), s * 0.99);
       g.fillStyle = c.zone === 'p' ? (mine ? P_TINT : 'rgba(120,95,60,.05)') : E_TINT;
       g.fill();
       g.strokeStyle = c.zone === 'p'
@@ -173,8 +188,8 @@
     ctx.clearRect(0, 0, W, H);
     ctx.drawImage(bg, 0, 0, W, H);
     if (view.hover && !view.drag) {
-      var s = hexW / Math.sqrt(3);
-      hexPath(ctx, px(view.hover.x), py(view.hover.y), s * 0.92);
+      var s = cw / 2;
+      sqPath(ctx, px(view.hover.x), py(view.hover.y), s * 0.92);
       ctx.fillStyle = 'rgba(63,107,87,.10)';
       ctx.fill();
     }
@@ -210,7 +225,7 @@
 
   // 覆盖层：血条 + 等级角标，永远盖在所有棋子上面
   function drawBadges(side) {
-    var list = pieceList(side), s = hexW / Math.sqrt(3);
+    var list = pieceList(side), s = cw / 2;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     for (var i = 0; i < list.length; i++) {
@@ -253,7 +268,7 @@
     if (!GB.Run || !GB.Run.ownedSet) return;
     var own = GB.Run.ownedSet(run);
     var price = GB.Run.nextCellPrice ? GB.Run.nextCellPrice(run) : 0;
-    var s = hexW / Math.sqrt(3);
+    var s = cw / 2;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     for (var i = 0; i < MAP.CELLS.length; i++) {
@@ -265,7 +280,7 @@
       if (!ok && !isPend) continue;
       var x = px(c.x), y = py(c.y);
       if (isPend) {
-        hexPath(ctx, x, y, s * 0.92);
+        sqPath(ctx, x, y, s * 0.92);
         ctx.fillStyle = 'rgba(169,129,47,.28)';
         ctx.fill();
         ctx.strokeStyle = 'rgba(169,129,47,.95)';
@@ -295,7 +310,7 @@
   function drawPiece(p, side) {
     var def = p.def || D.pieceById(p.k);
     if (!def || !p.cells) return;
-    var s = hexW / Math.sqrt(3);
+    var s = cw / 2;
     var isOpp = side === 'e';
     var dead = battle ? !p.alive : false;
     var isHero = p.k === 'jiang';
@@ -304,36 +319,47 @@
     ctx.save();
     if (dead) ctx.globalAlpha = 0.22;
 
+    // 多格棋子画成一整块（1×2 / 2×2 / 2×3 / 3×3）
+    var minC = 99, maxC = -1, minR = 99, maxR = -1;
     for (var k = 0; k < p.cells.length; k++) {
-      var c = p.cells[k];
-      var hx = px(c.x), hy = py(c.y);
-      hexPath(ctx, hx, hy, s * 0.94);
-      var grd = ctx.createLinearGradient(hx - s, hy - s, hx + s, hy + s);
-      if (isOpp) { grd.addColorStop(0, '#6b3a2c'); grd.addColorStop(1, '#3a1c14'); }
-      else if (isHero) { grd.addColorStop(0, '#e0c076'); grd.addColorStop(1, '#96701f'); }
-      else if (isFlag) { grd.addColorStop(0, '#5a5044'); grd.addColorStop(1, '#332c24'); }
-      else { grd.addColorStop(0, '#3b342b'); grd.addColorStop(1, '#1c1814'); }
-      ctx.fillStyle = grd;
-      ctx.fill();
-      ctx.strokeStyle = isHero ? 'rgba(255,240,200,.85)' : (isOpp ? 'rgba(255,180,160,.35)' : 'rgba(255,250,236,.22)');
-      ctx.lineWidth = 1.1;
+      var cc = p.cells[k];
+      if (cc.c < minC) minC = cc.c;
+      if (cc.c > maxC) maxC = cc.c;
+      if (cc.r < minR) minR = cc.r;
+      if (cc.r > maxR) maxR = cc.r;
+    }
+    var pad = Math.max(1.5, cw * 0.05);
+    var bx = px(minC + 0.5 - MAP.CX) - cw / 2 + pad;
+    var by = py(minR + 0.5 - MAP.CY) - cw / 2 + pad;
+    var bw = (maxC - minC + 1) * cw - pad * 2;
+    var bh = (maxR - minR + 1) * cw - pad * 2;
+    var cx = bx + bw / 2, cy = by + bh / 2;
+    s = Math.min(bw, bh) / 2;             // 之后所有特效环都按整块缩放
+    var rad = Math.max(3, Math.min(bw, bh) * 0.16);
+
+    var grd = ctx.createLinearGradient(bx, by, bx + bw, by + bh);
+    if (isOpp) { grd.addColorStop(0, '#6b3a2c'); grd.addColorStop(1, '#3a1c14'); }
+    else if (isHero) { grd.addColorStop(0, '#e0c076'); grd.addColorStop(1, '#96701f'); }
+    else if (isFlag) { grd.addColorStop(0, '#5a5044'); grd.addColorStop(1, '#332c24'); }
+    else { grd.addColorStop(0, '#3b342b'); grd.addColorStop(1, '#1c1814'); }
+    rectPath(ctx, bx, by, bw, bh, rad);
+    ctx.fillStyle = grd;
+    ctx.fill();
+    ctx.strokeStyle = isHero ? 'rgba(255,240,200,.85)' : (isOpp ? 'rgba(255,180,160,.35)' : 'rgba(255,250,236,.22)');
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    if (p.structure) {   // 无血挂件：虚线外环
+      ctx.save();
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = 'rgba(240,214,138,.5)';
+      ctx.lineWidth = 1.4;
+      rectPath(ctx, bx, by, bw, bh, rad);
       ctx.stroke();
-      if (p.structure) {   // 无血挂件：虚线外环
-        ctx.save();
-        ctx.setLineDash([4, 4]);
-        ctx.strokeStyle = 'rgba(240,214,138,.5)';
-        ctx.lineWidth = 1.4;
-        hexPath(ctx, cx, cy, s * 0.98);
-        ctx.stroke();
-        ctx.restore();
-      }
+      ctx.restore();
     }
 
-    var anchor = p.cells[0];
-    var cx = px(anchor.x), cy = py(anchor.y);
-
     var txt = isHero ? (D.HEROES[p.heroId] ? D.HEROES[p.heroId].name : '将') : def.ch;
-    var fs = txt.length > 1 ? s * 0.74 : s * 1.08;
+    var fs = Math.min(bw, bh) * (txt.length > 1 ? 0.44 : 0.62);
     ctx.font = fs + 'px "KaiTi","STKaiti","Kaiti SC",serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = isHero ? '#2a2008' : '#f4ecda';
@@ -379,7 +405,7 @@
       }
       if (p.hitT > 0) {
         ctx.globalAlpha = (dead ? 0.1 : p.hitT * 0.5);
-        hexPath(ctx, cx, cy, s * 0.94);
+        sqPath(ctx, cx, cy, s * 0.94);
         ctx.fillStyle = '#fff'; ctx.fill();
         ctx.globalAlpha = dead ? 0.22 : 1;
       }
@@ -429,7 +455,7 @@
       ctx.save();
       ctx.globalAlpha = 0.95;
       ctx.beginPath();
-      ctx.arc(x, y, sh.arc ? hexW * 0.10 : hexW * 0.075, 0, 6.284);
+      ctx.arc(x, y, sh.arc ? cw * 0.10 : cw * 0.075, 0, 6.284);
       ctx.fillStyle = sh.kind === '雷' ? '#8f74c9' : sh.kind === '火' ? '#d4693a'
         : sh.kind === '医' ? '#7ea86a' : (sh.side === 'p' ? '#e8c877' : '#d97a5a');
       ctx.fill();
@@ -438,7 +464,7 @@
   }
 
   function drawFloats() {
-    var s = hexW / Math.sqrt(3);
+    var s = cw / 2;
     for (var i = 0; i < battle.floats.length; i++) {
       var f = battle.floats[i];
       var a = U.clamp(f.life / 0.55, 0, 1);
@@ -447,7 +473,7 @@
       ctx.font = (s * 0.5) + 'px "Songti SC",serif';
       ctx.textAlign = 'center';
       ctx.fillStyle = f.good ? 'rgba(60,130,80,.95)' : 'rgba(150,40,30,.9)';
-      ctx.fillText(String(f.v), px(f.x), py(f.y) - (1 - a) * hexW * 0.55);
+      ctx.fillText(String(f.v), px(f.x), py(f.y) - (1 - a) * cw * 0.55);
       ctx.restore();
     }
   }
@@ -479,10 +505,10 @@
   function drawDrag() {
     var d = view.drag;
     if (!d || !d.cells) return;
-    var s = hexW / Math.sqrt(3);
+    var s = cw / 2;
     for (var i = 0; i < d.cells.length; i++) {
       var c = d.cells[i];
-      hexPath(ctx, px(c.x), py(c.y), s * 0.94);
+      sqPath(ctx, px(c.x), py(c.y), s * 0.94);
       ctx.fillStyle = d.valid ? 'rgba(63,107,87,.32)' : 'rgba(165,52,42,.28)';
       ctx.fill();
       ctx.strokeStyle = d.valid ? 'rgba(63,107,87,.9)' : 'rgba(165,52,42,.8)';
@@ -506,7 +532,7 @@
       rings.push({ x: px(ev.x1), y: py(ev.y1), r0: 2, r1: 16, life: 0.3, max: 0.3, color: 'rgba(120,200,140,.8)' });
     } else if (ev.type === 'shield' || ev.type === 'haste') {
       rings.push({
-        x: px(ev.x), y: py(ev.y), r0: 4, r1: hexW * (ev.r || 2), life: 0.45, max: 0.45,
+        x: px(ev.x), y: py(ev.y), r0: 4, r1: cw * (ev.r || 2), life: 0.45, max: 0.45,
         color: ev.type === 'shield' ? 'rgba(130,180,220,.7)' : 'rgba(240,210,120,.7)'
       });
     } else if (ev.type === 'order') {
@@ -515,7 +541,7 @@
       rings.push({ x: px(ev.x), y: py(ev.y), r0: 4, r1: 28, life: 0.5, max: 0.5, color: 'rgba(240,214,138,.95)' });
     } else if (ev.type === 'ult') {
       rings.push({
-        x: px(ev.x), y: py(ev.y), r0: 6, r1: hexW * 1.6, life: 0.6, max: 0.6,
+        x: px(ev.x), y: py(ev.y), r0: 6, r1: cw * 1.6, life: 0.6, max: 0.6,
         color: ev.kind === 'heal' ? 'rgba(120,200,140,.9)' : ev.kind === 'gold' ? 'rgba(201,162,75,.9)' : 'rgba(240,214,138,.95)'
       });
     } else if (ev.type === 'laststand') {
@@ -548,6 +574,6 @@
     cellAtPx: cellAtPx,
     toUnit: toUnit,
     pxOf: function (c) { return { x: px(c.x), y: py(c.y) }; },
-    metrics: function () { return { W: W, H: H, hexW: hexW }; }
+    metrics: function () { return { W: W, H: H, cw: cw }; }
   };
 }(typeof window !== 'undefined' ? window : globalThis));
