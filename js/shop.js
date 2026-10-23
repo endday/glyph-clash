@@ -58,6 +58,7 @@
   }
 
   function enchOffer(run, rnd) {
+    if (GB.Run.enchCount(run) >= (CFG.enchMax || 3)) return null;   // 附魔总量有限
     var tmax = tierMax(run.day);
     var pool = [];
     for (var id in D.ENCHANTS) {
@@ -72,9 +73,9 @@
 
   function makeOffer(run, rnd, forcePiece) {
     var r = forcePiece ? 0 : rnd();
-    if (r < 0.60) return pieceOffer(run, rnd) || skillOffer(run, rnd);
-    if (r < 0.88) return enchOffer(run, rnd) || pieceOffer(run, rnd);
-    return skillOffer(run, rnd) || pieceOffer(run, rnd);   // 兵书很少见（12%）
+    if (r < 0.72) return pieceOffer(run, rnd) || skillOffer(run, rnd);
+    if (r < 0.88) return enchOffer(run, rnd) || pieceOffer(run, rnd);   // 附魔 16%
+    return skillOffer(run, rnd) || pieceOffer(run, rnd);                // 兵书 12%
   }
 
   function roll(run) {
@@ -135,6 +136,7 @@
     if (!offer || offer.sold || !piece) return false;
     if (run.gold < offer.price) return false;
     if (piece.ench) return false;
+    if (GB.Run.enchCount(run) >= (CFG.enchMax || 3)) return false;   // 一局总量有限
     run.gold -= offer.price;
     offer.sold = true;
     piece.ench = offer.enchId;

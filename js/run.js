@@ -323,6 +323,12 @@
     return true;
   }
 
+  function enchCount(run) {
+    var n = 0, all = allPieces(run);
+    for (var i = 0; i < all.length; i++) if (all[i].ench) n++;
+    return n;
+  }
+
   function pendingEvo(run) {
     var all = allPieces(run);
     for (var i = 0; i < all.length; i++) if (all[i].pendingEvo) return all[i];
@@ -504,6 +510,7 @@
     rollBooks: rollBooks,
     chooseBook: chooseBook,
     pendingEvo: pendingEvo,
+    enchCount: enchCount,
     checkHeroes: checkHeroes,
     shardProgress: shardProgress,
     startDay: startDay,

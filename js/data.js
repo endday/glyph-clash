@@ -13,6 +13,7 @@
     skillSlots: [2, 4, 6],      // 第 2 / 4 / 6 天各开一个构筑位
     skillPrice: [12, 20, 32],   // 铜 / 银 / 金 的商店价（贵过任何同格数棋子）
     skillTierDay: [1, 3, 6],    // 铜随时 / 银第 3 天 / 金第 6 天
+    enchMax: 3,                 // 一局最多附魔 3 次（大巴扎里附魔是事件给的，不是货架商品）
     maxLevel: 5,
     rerollCost: 2,
     offersBase: 4,
@@ -452,13 +453,15 @@
   };
 
   /* ---------------- 附魔 ---------------- */
+  // 附魔：一次性改造一枚棋子。大巴扎里附魔是「事件随机给、不能撤销」，
+  // 所以这里同样限量（CFG.enchMax）+ 贵（8/12/16），不再是可以随便买的货架小卡。
   var ENCHANTS = {
-    yan: { id: 'yan', ch: '焰', name: '附魔·焰', tier: 2, price: 5, desc: '该棋子攻击附带灼烧。', fx: { burn: 0.3 } },
-    shuang: { id: 'shuang', ch: '霜', name: '附魔·霜', tier: 2, price: 5, desc: '1×1。命中减速 35%。', fx: { slow: 0.35 } },
-    du: { id: 'du', ch: '毒', name: '附魔·毒', tier: 2, price: 6, desc: '1×1。相邻友军攻击附带中毒。', fx: { poison: 0.25 } },
-    lei: { id: 'lei', ch: '雷', name: '附魔·雷', tier: 3, price: 6, desc: '1×2。命中时连锁旁边两人。', fx: { chain: 0.3 } },
-    jin: { id: 'jin', ch: '金', name: '附魔·金', tier: 1, price: 4, desc: '1×1。每 8 秒产 2 金。', fx: { killGold: 1 } },
-    hu: { id: 'hu', ch: '护', name: '附魔·护', tier: 1, price: 4, desc: '该棋子受伤 −30%。', fx: { dmgTaken: 0.3 } }
+    jin: { id: 'jin', ch: '金', name: '附魔·金', tier: 1, price: 8, desc: '该棋子击杀掉 1 金。', fx: { killGold: 1 } },
+    hu: { id: 'hu', ch: '护', name: '附魔·护', tier: 1, price: 8, desc: '该棋子受到的伤害 −18%。', fx: { dmgTaken: 0.18 } },
+    yan: { id: 'yan', ch: '焰', name: '附魔·焰', tier: 2, price: 12, desc: '该棋子攻击附带灼烧（每秒 15% 攻击）。', fx: { burn: 0.15 } },
+    shuang: { id: 'shuang', ch: '霜', name: '附魔·霜', tier: 2, price: 12, desc: '该棋子命中减速 25%。', fx: { slow: 0.25 } },
+    du: { id: 'du', ch: '毒', name: '附魔·毒', tier: 2, price: 12, desc: '该棋子攻击附带中毒（每秒 12% 攻击）。', fx: { poison: 0.12 } },
+    lei: { id: 'lei', ch: '雷', name: '附魔·雷', tier: 3, price: 16, desc: '该棋子命中时 20% 概率连锁旁边一人。', fx: { chain: 0.2 } }
   };
 
   /* ---------------- 解锁 ---------------- */
