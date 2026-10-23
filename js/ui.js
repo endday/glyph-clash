@@ -606,7 +606,7 @@
           }
         } else if (GB.Run.canUnlock(run, c.c, c.r)) {
           GB.Render.setPending(c);
-          toast('解锁这格 · ' + GB.Run.nextCellPrice(run) + ' 金（再点确认）');
+          toast('解锁这格 · ' + GB.Run.nextCellPrice(run) + ' 金');
         } else {
           GB.audio.deny(); toast('要挨着已有的格子扩', 'bad');
         }

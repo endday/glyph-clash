@@ -64,28 +64,28 @@
       id: 'dao', ch: '刀', name: '刀客', size: 4, tier: 1, price: 10, role: 'melee',
       kind: 'unit',
       hp: 3600, dmg: 680, atk: 4.0, range: 1,
-      desc: '核心战斗单位（2×2）。稳定制造「命中」事件——所有连锁的起点。'
+      desc: '2×2 近战。'
     },
     qiang: {
       id: 'qiang', legacy: true, ch: '枪', name: '枪手', size: 2, tier: 1, price: 5, role: 'melee',
       hp: 1000, dmg: 230, atk: 5.0, range: 2, pierce: 1,
-      desc: '长兵·穿透。够得着最前排，同列还能捅穿到后一排（六成伤害）。'
+      desc: '1×2 长兵。同列可捅穿到后一排。'
     },
     gong: {
       id: 'gong', ch: '弓', name: '弓手', size: 4, tier: 1, price: 10, role: 'arc',
       kind: 'unit',
       hp: 2080, dmg: 600, atk: 4.5, range: 4, arc: true,
-      desc: '核心远程（2×2）。越过前排打最后排，用来点名对面的引擎。'
+      desc: '2×2 抛射。越过前排打最后排。'
     },
     qi: {
       id: 'qi', ch: '骑', name: '骑将', size: 6, tier: 2, price: 15, role: 'tank', kind: 'unit',
       hp: 5400, dmg: 1240, atk: 5.5, range: 1, splash: 1,
-      desc: '近战·横扫。一撞打到左右三格（外侧减伤），血最厚。'
+      desc: '2×3 近战·横扫。'
     },
     jiang: {
       id: 'jiang', ch: '将', name: '将台', size: 9, tier: 3, price: 22, role: 'arc', kind: 'unit',
       hp: 8100, dmg: 1860, atk: 4.0, range: 3, arc: true, splash: 1,
-      desc: '抛射·溅射。砸中后排，落点周围一圈按距离衰减。'
+      desc: '3×3 抛射·溅射。'
     },
     yi: {
       id: 'yi', ch: '医', name: '医者', size: 1, tier: 1, price: 4, role: 'heal',
@@ -93,18 +93,18 @@
       hp: 600, heal: 260, atk: 5.0, range: 3,
       // 每次治疗都算一次「触发」——风助靠它转起来
       emits: 'trigger',
-      desc: '触发器。每 5 秒治疗一次，同时向全场广播「触发」事件。'
+      desc: '1×1。每 5 秒治疗射程内血最少的友军。'
     },
     dun: {
       id: 'dun', ch: '盾', name: '盾卫', size: 2, tier: 1, price: 7, role: 'support',
       kind: 'unit',
       hp: 2300, shield: 760, atk: 6.0, range: 2,
-      desc: '战斗单位。每 6 秒给射程内友军套护盾，负责把引擎护住。'
+      desc: '1×2。每 6 秒给射程内友军套 760 护盾。'
     },
     gu: {
       id: 'gu', legacy: true, ch: '鼓', name: '鼓手', size: 1, tier: 1, price: 4, role: 'support',
       hp: 640, haste: 0.35, atk: 6.0, range: 2,
-      desc: '增益。每 6 秒让射程内友军攻速 +35%，持续 3 秒。'
+      desc: '1×1。每 6 秒给射程内友军 +35% 攻速。'
     },
     shuang: {
       id: 'shuang', ch: '霜', name: '霜术师', size: 1, tier: 1, price: 5, role: 'mid',
@@ -112,7 +112,7 @@
       hp: 550, dmg: 150, atk: 5.0, range: 3,
       on: { hit: { scope: 'self', do: 'slow', v: 0.35, dur: 2.5 } },
       limits: { rate: 3 },
-      desc: '转换器。命中即减速，把「命中」换成「拖节奏」。'
+      desc: '1×1。命中减速 35%。'
     },
     lei: {
       id: 'lei', ch: '雷', name: '雷术师', size: 2, tier: 2, price: 7, role: 'mid',
@@ -120,7 +120,7 @@
       hp: 1160, dmg: 400, atk: 5.0, range: 4,
       on: { hit: { scope: 'self', do: 'chain', v: 0.5, n: 2 } },
       limits: { rate: 3 },
-      desc: '触发器。命中时把伤害连锁给旁边两个人。'
+      desc: '1×2。命中时连锁旁边两人。'
     },
 
     /* ---- 门派专属 ---- */
@@ -131,24 +131,24 @@
       // 相邻友军命中 → 给目标挂燃烧（燃烧循环的入口）
       on: { hit: { scope: 'adjacent', do: 'burn', v: 0.55, dur: 3.5 } },
       limits: { rate: 4 },
-      desc: '转换器。相邻友军命中时，给目标附加燃烧。'
+      desc: '1×2 抛射·溅射。相邻友军命中时附加燃烧。'
     },
     feng: {
       id: 'feng', ch: '风', name: '风助', size: 1, tier: 1, price: 5, role: 'flag', faction: 'dongwu',
       kind: 'engine',
       on: { trigger: { scope: 'team', do: 'haste', v: 0.5, dur: 2.5 } },
       limits: { rate: 3 },
-      desc: '引擎。场上任何「触发」发生时，全队加速 2 秒——火借风势。'
+      desc: '1×1。触发发生时，全队加速。'
     },
     jin: {
       id: 'jin', legacy: true, ch: '金', name: '金库', size: 1, tier: 1, price: 4, role: 'gold', faction: 'taozhu',
       hp: 450, gold: 2, atk: 8.0,
-      desc: '经济。每 8 秒产 2 金。'
+      desc: '1×1。每 8 秒产 2 金。'
     },
     piao: {
       id: 'piao', legacy: true, ch: '票', name: '票号', size: 2, tier: 2, price: 6, role: 'gold', faction: 'taozhu',
       hp: 640, gold: 5, atk: 10.0,
-      desc: '经济。每 10 秒产 5 金，占两格但印钞。'
+      desc: '1×2。每 10 秒产 5 金。'
     },
     ji: {
       id: 'ji', ch: '机', name: '机关人', size: 1, tier: 1, price: 5, role: 'flag', faction: 'mojia',
@@ -156,33 +156,33 @@
       // 燃烧跳伤 → 给相邻战斗单位减冷却（燃烧循环的回环）
       on: { burn_tick: { scope: 'team', do: 'charge', v: 1.5 } },
       limits: { rate: 3 },
-      desc: '引擎。敌人每次被燃烧灼伤，就给相邻战斗单位减 1.5 秒冷却（每秒最多 3 次）。'
+      desc: '1×1。敌人被燃烧灼伤时，相邻单位冷却 −1.5 秒。'
     },
     nu: {
       id: 'nu', ch: '弩', name: '连弩车', size: 1, tier: 2, price: 6, role: 'arc', faction: 'mojia',
       kind: 'trigger',
       hp: 720, dmg: 110, atk: 2.8, range: 3, arc: true,
-      desc: '触发器。攻速极快，专门给引擎刷「命中次数」。'
+      desc: '1×1 抛射。攻速极快。'
     },
     du: {
       id: 'du', legacy: true, ch: '毒', name: '毒师', size: 1, tier: 1, price: 5, role: 'flag', faction: 'miaoyu',
       aura: 'poison', value: 0.25,
-      desc: '光环：相邻棋子的攻击附带中毒。'
+      desc: '1×1。相邻友军攻击附带中毒。'
     },
     lu: {
       id: 'lu', legacy: true, ch: '庐', name: '药庐', size: 2, tier: 2, price: 6, role: 'heal', faction: 'miaoyu',
       hp: 720, heal: 170, atk: 4.0, range: 3,
-      desc: '持续治疗。出手快但单次少，适合打消耗。'
+      desc: '1×2。每 4 秒治疗一次。'
     },
     lou: {
       id: 'lou', legacy: true, ch: '楼', name: '望楼', size: 2, tier: 1, price: 6, role: 'flag', faction: 'wolong',
       aura: 'range', value: 1,
-      desc: '光环：相邻棋子射程 +1。'
+      desc: '1×2。相邻友军射程 +1。'
     },
     liuma: {
       id: 'liuma', legacy: true, ch: '马', name: '流马', size: 4, tier: 2, price: 11, role: 'tank', faction: 'wolong',
       hp: 2600, dmg: 460, atk: 4.0, range: 3,
-      desc: '中排。血不薄，却能隔空输出。'
+      desc: '2×2。射程 3。'
     }
   };
 
@@ -230,20 +230,20 @@
       // 累计命中 → 每 3 次给出手者一次额外攻击（连击循环）
       on: { hit: { scope: 'team', do: 'combo', need: 2 } },
       limits: { rate: 3 },
-      desc: '引擎。全队每累计 2 次命中，出手者立刻再打一次（每秒最多 1.5 次）。'
+      desc: '1×1。全队每 2 次命中，出手者补一刀。'
     },
-    flag_spd: { id: 'flag_spd', legacy: true, ch: '令', name: '令疾旗', size: 1, tier: 1, price: 5, role: 'flag', aura: 'spd', value: 0.15, desc: '光环：相邻棋子攻速 +15%。' },
-    flag_hp: { id: 'flag_hp', legacy: true, ch: '壁', name: '铁壁旗', size: 1, tier: 1, price: 5, role: 'flag', aura: 'hp', value: 0.20, desc: '光环：相邻棋子血量上限 +20%。' },
+    flag_spd: { id: 'flag_spd', legacy: true, ch: '令', name: '令疾旗', size: 1, tier: 1, price: 5, role: 'flag', aura: 'spd', value: 0.15, desc: '1×1。相邻友军攻速 +15%。' },
+    flag_hp: { id: 'flag_hp', legacy: true, ch: '壁', name: '铁壁旗', size: 1, tier: 1, price: 5, role: 'flag', aura: 'hp', value: 0.20, desc: '1×1。相邻友军血量 +20%。' },
     flag_burn: {
       id: 'flag_burn', ch: '烽', name: '火盆旗', size: 1, tier: 2, price: 5, role: 'flag',
       kind: 'engine',
       // 燃烧跳伤 → 把燃烧扩散给旁边的敌人
       on: { burn_tick: { scope: 'team', do: 'spread', v: 0.7 } },
       limits: { rate: 1 },
-      desc: '引擎。敌人被燃烧灼伤时，把燃烧扩散给它旁边的敌人（每秒最多 1 次）。'
+      desc: '1×1。敌人被灼伤时，把燃烧扩散给旁边。'
     },
-    flag_slow: { id: 'flag_slow', legacy: true, ch: '冰', name: '冰鉴旗', size: 1, tier: 2, price: 5, role: 'flag', aura: 'slow', value: 0.30, desc: '光环：相邻棋子攻击附带减速。' },
-    flag_gold: { id: 'flag_gold', legacy: true, ch: '鳞', name: '金鳞旗', size: 1, tier: 2, price: 5, role: 'flag', aura: 'gold', value: 1, desc: '光环：相邻棋子击杀掉 1 金。' }
+    flag_slow: { id: 'flag_slow', legacy: true, ch: '冰', name: '冰鉴旗', size: 1, tier: 2, price: 5, role: 'flag', aura: 'slow', value: 0.30, desc: '1×1。相邻友军攻击附带减速。' },
+    flag_gold: { id: 'flag_gold', legacy: true, ch: '鳞', name: '金鳞旗', size: 1, tier: 2, price: 5, role: 'flag', aura: 'gold', value: 1, desc: '1×1。相邻友军击杀 +1 金。' }
   };
 
   /* ---------------- 规则进化（2 级二选一，见 ITERATION.md §6） ----------------
@@ -366,7 +366,7 @@
     beishui: {
       id: 'beishui', ch: '水', name: '背水', tier: 1, when: { maxUnits: 4 },
       give: { spdMul: [0.20, 0.30, 0.40] },
-      desc: '棋子数 ≤4 时，全队攻速 +20/30/40%（少而精）'
+      desc: '棋子数 ≤4 时，全队攻速 +20/30/40%'
     },
     changqu: {
       id: 'changqu', ch: '驱', name: '长驱', tier: 1, when: { perBig: true },
@@ -381,7 +381,7 @@
     kongcheng: {
       id: 'kongcheng', ch: '空', name: '空城', tier: 2, when: { perEmpty: true, cap: 6 },
       give: { atkMul: [0.04, 0.06, 0.08] },
-      desc: '每有 1 格空位，全队攻击 +4/6/8%（最多算 6 格）'
+      desc: '每 1 格空位，全队攻击 +4/6/8%（最多算 6 格）'
     },
     /* ---- 位置类 ---- */
     tiebi: {
@@ -399,29 +399,29 @@
       id: 'lianu', ch: '弩', name: '连弩', tier: 2,
       on: { hit: { scope: 'team', do: 'rerollHit', v: [0.30, 0.45, 0.60], arcOnly: true } },
       limits: { rate: 3 },
-      desc: '抛射棋子命中时，有 30/45/60% 概率立刻再打一次'
+      desc: '抛射棋子命中时，有 30/45/60% 概率再打一次'
     },
     jifeng: {
       id: 'jifeng', ch: '疾', name: '疾风', tier: 1,
       on: { trigger: { scope: 'team', do: 'haste', v: [0.15, 0.22, 0.30], dur: 2 } },
       limits: { rate: 3 },
-      desc: '每次「触发」发生时，全队加速 15/22/30% 持续 2 秒'
+      desc: '触发发生时，全队加速 15/22/30% 持续 2 秒'
     },
     liaoyuan: {
       id: 'liaoyuan', ch: '燎', name: '燎原', tier: 3,
       on: { burn_tick: { scope: 'team', do: 'spread', v: [0.25, 0.35, 0.45] } },
       limits: { rate: 2 },
-      desc: '敌人被燃烧灼伤时，有 25/35/45% 强度再扩散一次'
+      desc: '敌人被灼伤时，以 25/35/45% 的强度再扩散一次'
     },
     miaoshou: {
       id: 'miaoshou', ch: '妙', name: '妙手', tier: 2, when: { healOverflow: true },
       give: { healToShield: [0.40, 0.60, 0.80] },
-      desc: '治疗溢出转化为等量护盾的 40/60/80%'
+      desc: '治疗溢出转化为 40/60/80% 的护盾'
     },
     jiejian: {
       id: 'jiejian', ch: '箭', name: '借箭', tier: 2, when: { onMerge: true },
       give: { mergeMulticast: [1, 1, 2], mergeGold: [1, 2, 3] },
-      desc: '每次合成：该棋子永久 +1 层多重释放（上限 3），并 +1/2/3 金'
+      desc: '每次合成：该棋子永久 +1 层多重释放，并 +1/2/3 金'
     },
     /* ---- 经济 / 全局类（不进战斗，走 run.mods） ---- */
     tuntian: {
@@ -432,7 +432,7 @@
     wenjiu: {
       id: 'wenjiu', ch: '温', name: '温酒', tier: 1,
       give: { sellFull: [1, 1, 1] },
-      desc: '卖出返还全额；卖出的棋子给同类棋子 +2% 攻击（永久叠加）'
+      desc: '卖出返还全额'
     },
     cangbing: {
       id: 'cangbing', ch: '藏', name: '藏兵', tier: 1,
@@ -442,7 +442,7 @@
     tianji: {
       id: 'tianji', ch: '机', name: '天机', tier: 2,
       give: { shopSlot: [1, 1, 2], freeReroll: [1, 1, 2] },
-      desc: '集市 +1 货位，且每天前 1/1/2 次刷新免费'
+      desc: '集市 +1 货位，每天前 1/1/2 次刷新免费'
     },
     caochuan: {
       id: 'caochuan', ch: '船', name: '草船', tier: 3,
@@ -454,10 +454,10 @@
   /* ---------------- 附魔 ---------------- */
   var ENCHANTS = {
     yan: { id: 'yan', ch: '焰', name: '附魔·焰', tier: 2, price: 5, desc: '该棋子攻击附带灼烧。', fx: { burn: 0.3 } },
-    shuang: { id: 'shuang', ch: '霜', name: '附魔·霜', tier: 2, price: 5, desc: '该棋子攻击附带减速。', fx: { slow: 0.35 } },
-    du: { id: 'du', ch: '毒', name: '附魔·毒', tier: 2, price: 6, desc: '该棋子攻击附带中毒。', fx: { poison: 0.25 } },
-    lei: { id: 'lei', ch: '雷', name: '附魔·雷', tier: 3, price: 6, desc: '命中时 30% 概率连锁旁边一人。', fx: { chain: 0.3 } },
-    jin: { id: 'jin', ch: '金', name: '附魔·金', tier: 1, price: 4, desc: '该棋子击杀掉 1 金。', fx: { killGold: 1 } },
+    shuang: { id: 'shuang', ch: '霜', name: '附魔·霜', tier: 2, price: 5, desc: '1×1。命中减速 35%。', fx: { slow: 0.35 } },
+    du: { id: 'du', ch: '毒', name: '附魔·毒', tier: 2, price: 6, desc: '1×1。相邻友军攻击附带中毒。', fx: { poison: 0.25 } },
+    lei: { id: 'lei', ch: '雷', name: '附魔·雷', tier: 3, price: 6, desc: '1×2。命中时连锁旁边两人。', fx: { chain: 0.3 } },
+    jin: { id: 'jin', ch: '金', name: '附魔·金', tier: 1, price: 4, desc: '1×1。每 8 秒产 2 金。', fx: { killGold: 1 } },
     hu: { id: 'hu', ch: '护', name: '附魔·护', tier: 1, price: 4, desc: '该棋子受伤 −30%。', fx: { dmgTaken: 0.3 } }
   };
 

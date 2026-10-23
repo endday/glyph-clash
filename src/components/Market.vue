@@ -6,7 +6,7 @@
       <span class="sub">第 {{ ui.day }} 天 · 刷新 2 金</span>
     </header>
 
-    <p v-if="ui.enchId" class="note">选一颗棋子附魔（点备战席或棋盘）</p>
+    <p v-if="ui.enchId" class="note">选一颗棋子附魔</p>
 
     <div class="grid">
       <button

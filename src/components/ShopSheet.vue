@@ -44,7 +44,7 @@
           <span>兵书</span>
           <span class="sub">{{ ui.books.list.length }}/{{ ui.books.slots }} 卷</span>
         </div>
-        <p v-if="!ui.books.list.length" class="note">第 2 天开第一个兵书位</p>
+        <p v-if="!ui.books.list.length" class="note">还没有兵书</p>
         <template v-else>
           <div class="books">
             <button
@@ -57,7 +57,6 @@
             >{{ s.ch }}</button>
           </div>
           <p v-if="book" class="book-detail"><b>{{ book.name }}</b>{{ book.desc }}</p>
-          <p v-else class="book-hint">点兵书看说明</p>
         </template>
       </div>
 

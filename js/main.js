@@ -38,7 +38,7 @@
       return d && d.role !== 'flag';
     });
     if (!GB.Run.boardPieces(run).length) {
-      GB.UI.toast('先把棋子拖到棋盘上', 'bad');
+      GB.UI.toast('先布阵', 'bad');
       GB.audio.deny();
       return;
     }
@@ -169,11 +169,9 @@
       return;
     }
     var body = U.el('div', {},
-      U.el('p', { text: '按住棋子拖到棋盘上摆阵；棋子在棋盘上互相拖拽可以换位。' }),
-      U.el('p', { text: '把一颗拖到同字同级的另一颗上即可合成升级；棋子占 1～3 格，放不下会有提示。' }),
-      U.el('p', { text: '点棋子可以看详情；点空白处收起。每枚棋子都有小技能（自动），3 级起解锁大招，可在对局面板的大招条里手动放。' }),
-      U.el('p', { class: 'muted', text: '对局最长 55 秒，超时比双方剩余总血量。' }),
-      U.el('p', { class: 'muted', text: '输一场按当天进度扣声望，声望归零即出局；10 天内赢 6 场登顶。' })
+      U.el('p', { text: '点备战席的棋子选中，点棋盘落子；拖到同字同级的棋子上合成。' }),
+      U.el('p', { text: '每枚棋子有小技能（自动），3 级解锁大招；对局面板的大招条可手动放。' }),
+      U.el('p', { class: 'muted', text: '对局最长 45 秒，超时比剩余总血量；输一场扣当天进度点声望。' })
     );
     GB.UI.modal({
       title: '玩法',
