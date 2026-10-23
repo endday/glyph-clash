@@ -203,16 +203,32 @@
     // 3) 扩建：摆不下或格子快满才铺，留 2 金买子
     for (i = 0; i < 2; i++) {
       var price = GB.Run.nextCellPrice(run);
-      if (!price || run.gold < price + 2) break;
-      var benchN = run.bench.filter(Boolean).length;
+      if (!price || run.gold < price + 8) break;
+      // 只有「棋盘快满了」才铺格子——别把买棋子的钱全花在扩建上
       var used = GB.Run.cellsUsed(run), cap = GB.Run.cellsN(run);
-      if (!(benchN > 0 || used >= cap - 1)) break;
+      if (!(used >= cap - 1)) break;
       var own = GB.Run.ownedSet(run), spot = null, list = MAP.playerCells();
       for (j = 0; j < list.length; j++) {
         if (!own[MAP.key(list[j].c, list[j].r)] && GB.Run.canUnlock(run, list[j].c, list[j].r)) { spot = list[j]; break; }
       }
       if (!spot) break;
       GB.Run.unlockCell(run, spot.c, spot.r);
+    }
+
+    // 3.5) 凑合成：手里有同名同级的棋子、货架却没有第二颗 → 花 2 金刷新（最多两次）
+    for (var rr = 0; rr < 2; rr++) {
+      var have = GB.Run.allPieces(run);
+      var offerKeys = {};
+      (run.offers || []).forEach(function (o) {
+        if (!o.sold && o.type === 'piece') offerKeys[o.k] = 1;
+      });
+      var pairOnShelf = false;
+      for (var hi = 0; hi < have.length; hi++) {
+        if (offerKeys[have[hi].k]) { pairOnShelf = true; break; }
+      }
+      if (pairOnShelf) break;
+      if (run.gold < 8) break;
+      if (!GB.Shop.reroll(run)) break;
     }
 
     // 4) 买子：逐个试「买下并重新摆位」的增益，按性价比买
@@ -230,6 +246,10 @@
         if (!D.pieceById(offers[i].k)) continue;
         var cand = cur.concat([{ k: offers[i].k, level: 1, cells: [] }]);
         var gain2 = evalBoard(run, cand) - curScore;
+        // 凑合成：手里有同名同级的，买到手就能合 → 额外加一档价值
+        for (var dq = 0; dq < cur.length; dq++) {
+          if (cur[dq].k === offers[i].k && (cur[dq].level || 1) === 1) { gain2 += 1600; break; }
+        }
         var value = gain2 / Math.max(1, offers[i].price);
         if (gain2 > 0 && value > bestValue) { bestValue = value; bestOffer = offers[i]; }
       }
@@ -252,7 +272,7 @@
               ? { k: x.k, level: (x.level || 1) + 1, cells: [] }
               : { k: x.k, level: x.level, cells: [] };
           });
-          if (evalBoard(run, after) >= baseScore) { GB.Run.mergeInto(run, all[i], all[j]); merged = true; }
+          if (evalBoard(run, after) >= baseScore * 0.92) { GB.Run.mergeInto(run, all[i], all[j]); merged = true; }
           break;
         }
       }
