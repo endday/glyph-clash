@@ -271,6 +271,13 @@
     var old = p.cells;
     clearCells(run, p);
     var res = MAP.findPlacement(run.board, MAP.colOf(q, r), r, def.size, 'p', ownedSet(run));
+    // 手机上拖放很难精准落在格心：落点失败时往四周吸一格再试（只吸已解锁的空格）
+    if (!res) {
+      var SNAP = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]];
+      for (var ni = 0; ni < SNAP.length && !res; ni++) {
+        res = MAP.findPlacement(run.board, q + SNAP[ni][0], r + SNAP[ni][1], def.size, 'p', ownedSet(run));
+      }
+    }
     if (!res) {
       if (old) {
         for (var i = 0; i < old.length; i++) run.board[MAP.key(old[i].q, old[i].r)] = p;
