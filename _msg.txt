@@ -1,9 +1,0 @@
-fix(bench): 拖不动 + 刀客显示成长方形
-
-拖不动：.bslot 漏了 touch-action:none，触摸被浏览器当成滚动而触发 pointercancel，
-拖动永远不开始。补上后验证：合成一次拖动会正常产生 ghost。
-
-长方形：两个原因叠加——
-1) 模板里残留内联 style gridTemplateColumns=repeat(4,minmax(0,1fr))，把 CSS 的固定列宽覆盖了
-2) 行高写死 34px、列宽弹性，格子天然是扁的
-改成 4 列 x 3 行固定 44px 方格：实测 2x2 刀客 = 93x93 正方形，2x1 盾卫 = 93x44。

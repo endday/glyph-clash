@@ -211,7 +211,8 @@
     return true;
   }
 
-  function benchSlots(run) { return CFG.benchBase + (mods(run).bench || 0); }
+  // 备战席容量：按格算，但网格只有 4×3=12 格，不能超
+  function benchSlots(run) { return Math.min(12, CFG.benchBase + (mods(run).bench || 0)); }
 
   function syncBench(run) {
     var n = benchSlots(run);
