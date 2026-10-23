@@ -299,8 +299,12 @@
     removePiece(run, src);
     dst.level++;
     dst.cd = 0;
-    // 2 级二选一：规则进化（见 ITERATION.md §6）
-    if (dst.level === 2 && !dst.evo && D.evoOptions(dst.k)) dst.pendingEvo = true;
+    // 流派：2 级、3 级各选一次，可以叠加（最多 2 个）
+    var evos = dst.evos || (dst.evo ? [dst.evo] : []);
+    dst.evos = evos;
+    if ((dst.level === 2 || dst.level === 3) && D.evoOptions(dst.k) && evos.length < 2) {
+      dst.pendingEvo = true;
+    }
     // 兵书「借箭」：每次合成给该棋子永久多重释放
     var mm = mods(run).mergeMulticast || 0;
     if (mm > 0) dst.multicast = Math.min(3, (dst.multicast || 0) + mm);
@@ -311,15 +315,27 @@
     return true;
   }
 
-  // 选完进化：把 pendingEvo 换成 evo id
+  // 这枚棋子还能选哪些流派（已选过的不再出现）
+  function evoChoices(p) {
+    if (!p) return [];
+    var all = D.evoOptions(p.k) || [];
+    var have = p.evos || (p.evo ? [p.evo] : []);
+    return all.filter(function (o) { return have.indexOf(o.id) < 0; });
+  }
+
+  // 选完进化：追加到流派数组（可叠加，最多 2 个）
   function chooseEvo(run, p, evoId) {
     if (!p) return false;
     var opt = D.evoDef(p.k, evoId);
     if (!opt) return false;
-    p.evo = evoId;
+    p.evos = p.evos || (p.evo ? [p.evo] : []);
+    if (p.evos.length >= 2) return false;
+    if (p.evos.indexOf(evoId) >= 0) return false;
+    p.evos.push(evoId);
+    p.evo = p.evos[0];
     p.pendingEvo = false;
     var def = p.def || D.pieceById(p.k);
-    pushLog(run, '进化 · ' + (def ? def.name : p.k) + ' 选择「' + opt.name + '」。');
+    pushLog(run, '流派 · ' + (def ? def.name : p.k) + ' 得「' + opt.name + '」。');
     return true;
   }
 
@@ -502,6 +518,7 @@
     canMerge: canMerge,
     mergeInto: mergeInto,
     chooseEvo: chooseEvo,
+    evoChoices: evoChoices,
     skillSlots: skillSlots,
     skillTierMax: skillTierMax,
     skillPrice: skillPrice,

@@ -40,7 +40,8 @@
       hasteUntil: 0,
       stunned: 0,
       evo: src.evo || null,
-      evoDef: src.evo && D.evoDef ? D.evoDef(def.id, src.evo) : null,
+      evos: (src.evos || (src.evo ? [src.evo] : [])).slice(0, 2),
+      evoDef: null, evoDefs: [],
       on: null,
       skillDef: D.ULTS[def.id] || null,
       skillT: 0,
@@ -52,9 +53,17 @@
     // 有效钩子表 = 棋子自带 on + 进化覆盖
     p.on = {};
     if (def.on) for (var hk in def.on) if (def.on.hasOwnProperty(hk)) p.on[hk] = def.on[hk];
-    if (p.evoDef && p.evoDef.on) for (var ek in p.evoDef.on) if (p.evoDef.on.hasOwnProperty(ek)) {
-      p.on[ek] = Object.assign({}, p.on[ek] || {}, p.evoDef.on[ek]);
+    // 多个流派叠加：钩子依次覆盖合并
+    for (var ei = 0; ei < p.evos.length; ei++) {
+      var ed = D.evoDef ? D.evoDef(def.id, p.evos[ei]) : null;
+      if (!ed) continue;
+      p.evoDefs.push(ed);
+      if (!ed.on) continue;
+      for (var ek in ed.on) if (ed.on.hasOwnProperty(ek)) {
+        p.on[ek] = Object.assign({}, p.on[ek] || {}, ed.on[ek]);
+      }
     }
+    p.evoDef = p.evoDefs[0] || null;
     return p;
   }
 
@@ -70,7 +79,15 @@
       for (var i = 0; i < list.length; i++) {
         var p = list[i], d = p.def, lv = LVL[p.level] || 1;
         p.aura = { dmg: 0, spd: 0, hp: 0, range: 0, burn: 0, slow: 0, gold: 0, poison: 0 };
-        var es = (p.evoDef && p.evoDef.stats) || {};
+        var es = {};
+        for (var si = 0; si < p.evoDefs.length; si++) {
+          var st = p.evoDefs[si].stats || {};
+          for (var sk in st) {
+            if (!st.hasOwnProperty(sk)) continue;
+            if (sk === 'rangeAdd' || sk === 'splashAdd') es[sk] = (es[sk] || 0) + st[sk];
+            else es[sk] = (es[sk] || 1) * st[sk];
+          }
+        }
         p.raw = {
           hp: (p.structure ? 0 : (d.hp || 100)) * lv * (CFG.hpScale || 1) * (1 + (m.hp || 0)) * (d.role === 'tank' ? 1 + (m.tankHp || 0) : 1) * (es.hpMul || 1),
           dmg: (d.dmg || 0) * lv * (1 + (m.dmgMul || 0)) * (es.dmgMul || 1),
@@ -344,7 +361,10 @@
   }
 
   function rateOk(b, p, type) {
-    var lim = ((p.def.limits && p.def.limits.rate) || 3) + ((p.evoDef && p.evoDef.limits && p.evoDef.limits.rate) || 0);
+    var lim = (p.def.limits && p.def.limits.rate) || 3;
+    for (var li = 0; li < (p.evoDefs || []).length; li++) {
+      lim += (p.evoDefs[li].limits && p.evoDefs[li].limits.rate) || 0;
+    }
     if (lim < 1) lim = 1;
     var w = EV.rateWindow || 1;
     p._rate = p._rate || {};

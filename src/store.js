@@ -249,7 +249,8 @@ export function installBridge() {
           id: pend.id,
           ch: pd ? pd.ch : '?',
           name: pd ? pd.name : pend.k,
-          options: (g.D.evoOptions(pend.k) || []).map((o) => ({ id: o.id, name: o.name, desc: o.desc }))
+          options: (g.Run.evoChoices ? g.Run.evoChoices(pend) : (g.D.evoOptions(pend.k) || []))
+            .map((o) => ({ id: o.id, name: o.name, desc: o.desc }))
         }
       } else ui.evo = null
       ui.rev++

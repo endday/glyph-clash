@@ -15,7 +15,8 @@
   function mirror(pieces) {
     return pieces.map(function (p) {
       var out = {
-        id: p.id, k: p.k, level: p.level || 1, evo: p.evo || null,
+        id: p.id, k: p.k, level: p.level || 1,
+        evo: p.evo || null, evos: (p.evos || (p.evo ? [p.evo] : [])).slice(0, 2),
         ench: p.ench || null, heroId: p.heroId || null,
         multicast: p.multicast || 0, cells: []
       };
@@ -31,21 +32,52 @@
   function aiTurn(run, rnd) {
     var i, j;
 
-    // 胜负赏金：玩家赢一场拿 4 + ⌊day/2⌋ 金，对手按赢一半折算
-    var bounty = Math.floor((4 + Math.floor(run.day / 2)) / 2);
-    run.gold += bounty;
+    // 胜负赏金：玩家赢一场拿 4 + ⌊day/2⌋ 金。对手按「赢了」算——
+    // 它代表的是一个打得不错的幽灵，不是「输一半」的幽灵
+    run.gold += 4 + Math.floor(run.day / 2);
 
-    // 兵书三选一
+    // 水平档：前 3 天打得松（少买、留钱），第 4 天起收紧
+    var tight = run.day >= 4;
+    var buyCap = tight ? 4 : 2;
+    var keepGold = tight ? 2 : 6;
+
+    // 兵书三选一：按自己阵型挑一本（有脑子，但不作弊）
     if (run.bookOffer && run.bookOffer.length && !GB.Run.skillFull(run)) {
-      var pick = run.bookOffer[Math.floor(rnd() * run.bookOffer.length)];
-      var sk = D.skillById(pick);
-      GB.Run.chooseBook(run, pick, Math.min(GB.Run.skillTierMax(run), (sk && sk.tier) || 1));
+      var mine = GB.Run.boardPieces(run);
+      var big = 0, lvl3 = 0, arc = 0, heal = 0, units = 0;
+      for (var mi = 0; mi < mine.length; mi++) {
+        var md = D.pieceById(mine[mi].k) || {};
+        if (md.role === 'flag') continue;
+        units++;
+        if ((md.size || 1) >= 4) big++;
+        if ((mine[mi].level || 1) >= 3) lvl3++;
+        if (md.arc) arc++;
+        if (md.heal) heal++;
+      }
+      function bookScore(id) {
+        if (id === 'changqu') return big * 2;
+        if (id === 'poshu') return lvl3 * 2;
+        if (id === 'lianu') return arc * 2;
+        if (id === 'miaoshou') return heal * 3;
+        if (id === 'beishui') return units <= 4 ? 4 : 0;
+        if (id === 'kongcheng') return Math.max(0, 10 - units);
+        if (id === 'tiebi' || id === 'jifeng') return 2;
+        if (id === 'tuntian' || id === 'cangbing') return 3;   // 经济类先拿
+        return 1;
+      }
+      var bestId = run.bookOffer[0], bestScore = -1;
+      for (var bi2 = 0; bi2 < run.bookOffer.length; bi2++) {
+        var sc = bookScore(run.bookOffer[bi2]);
+        if (sc > bestScore) { bestScore = sc; bestId = run.bookOffer[bi2]; }
+      }
+      var sk = D.skillById(bestId);
+      GB.Run.chooseBook(run, bestId, Math.min(GB.Run.skillTierMax(run), (sk && sk.tier) || 1));
     }
 
     // 扩建：留 3 金买棋子，一回合最多铺两块
     for (i = 0; i < 2; i++) {
       var price = GB.Run.nextCellPrice(run);
-      if (!price || run.gold < price + 3) break;
+      if (!price || run.gold < price + keepGold) break;
       var own = GB.Run.ownedSet(run);
       var spot = null, list = MAP.playerCells();
       for (j = 0; j < list.length; j++) {
@@ -56,7 +88,7 @@
     }
 
     // 买棋子：优先补同名（好合成），否则买最贵的
-    for (i = 0; i < 3; i++) {
+    for (i = 0; i < buyCap; i++) {
       if (GB.Run.freeBenchSlot(run) < 0) break;
       var offers = (run.offers || []).filter(function (o) {
         return o.type === 'piece' && !o.sold && run.gold >= o.price + 3;
@@ -97,9 +129,17 @@
     while (guard++ < 10) {
       var pend = GB.Run.pendingEvo(run);
       if (!pend) break;
-      var opts = D.evoOptions(pend.k) || [];
+      var opts = GB.Run.evoChoices ? GB.Run.evoChoices(pend) : (D.evoOptions(pend.k) || []);
       if (!opts.length) { pend.pendingEvo = false; break; }
-      GB.Run.chooseEvo(run, pend, opts[Math.floor(rnd() * opts.length)].id);
+      // 优先「加伤害/加攻速」的那一支，其次按表里顺序
+      var score = { fast: 3, heavy: 2, rapid: 3, sunder: 2, blaze: 3, storm: 3,
+                    pierce: 2, loud: 2, urgent: 3, long: 2, gale: 2, precise: 2, link: 2,
+                    wall: 1, swift: 2, armor: 1, wide: 1, firstaid: 1, deep: 2, fork: 2 };
+      var best = opts[0];
+      for (var oi = 1; oi < opts.length; oi++) {
+        if ((score[opts[oi].id] || 0) > (score[best.id] || 0)) best = opts[oi];
+      }
+      GB.Run.chooseEvo(run, pend, best.id);
     }
 
     // 上阵：按角色分行（近战在前、远程在后）
