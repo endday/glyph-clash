@@ -7,7 +7,7 @@
           <span>备战席</span>
           <span class="sub">{{ usedBenchCells }}/{{ ui.benchCap }} 格</span>
         </div>
-        <div class="benchgrid" :style="{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }">
+        <div class="benchgrid">
           <button
             v-for="b in ui.benchView"
             :key="b.id"
@@ -255,9 +255,11 @@ function sellSel() {
 .head::before { content: ""; width: 3px; height: 11px; background: #a5342a; border-radius: 1px; }
 .sub { margin-left: auto; font-size: 9.5px; color: #9b8f7d; font-variant-numeric: tabular-nums; }
 
-.benchgrid { display: grid; grid-auto-rows: 34px; gap: 5px; }
+.benchgrid { display: grid; grid-template-columns: repeat(4, 44px); grid-template-rows: repeat(3, 44px);
+  gap: 5px; justify-content: start; }
 .bslot { position: relative; display: flex; align-items: center; justify-content: center;
-  border-radius: 9px; border: 1.5px solid rgba(160,122,45,.5); min-width: 0; cursor: pointer;
+  border-radius: 9px; border: 1.5px solid rgba(160,122,45,.5); min-width: 0; min-height: 0; cursor: pointer;
+  touch-action: none; -webkit-user-select: none; user-select: none;
   background: linear-gradient(180deg, #3b342b, #1c1814); color: #f4ecda; padding: 0; }
 .bslot .ch { font-family: var(--kai, "KaiTi", serif); font-size: 17px; }
 .bslot .lv { position: absolute; left: 4px; top: 3px; font-size: 9px; color: #f0d68a; }
