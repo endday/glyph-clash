@@ -1,0 +1,11 @@
+fix: AI 试玩报告里的三个 P0（金币/兵书/接口）
+
+1) 敌方金库的金币算给了玩家（battle.stats.gold 单字段）→ 只在 p.side==='p' 时结算；
+   击杀金币同样加 side 判定
+2) 兵书位满了（3/3）仍能在商店买第三本，且会吞掉下一天免费三选一 →
+   Shop.buy 的 skill 分支先判 skillFull
+3) DRIVER.state().battle 恒为 null（GB.UI.getBattle 没导出）→ 导出 getBattle；
+   并在 closeModal 关掉结算弹窗后调 GB.Game.next()，否则自动化会卡在弹窗
+
+其余（棋盘→备战席拖拽状态污染、移动端顶栏、1.35x 合成数值、扩建价注释不一致）
+见 docs/ai-playtest.md，下一轮处理。

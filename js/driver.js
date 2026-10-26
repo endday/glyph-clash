@@ -206,7 +206,9 @@
         if (g.Game.cycleSpeed) g.Game.cycleSpeed();
         res = { ok: true, msg: '加速' };
       } else if (name === 'closeModal') {
+        var hadResult = !!(W.__ui && W.__ui.modal && W.__ui.modal.kind === 'outcome');
         if (g.UI.closeModal) g.UI.closeModal();
+        if (hadResult && g.Game && g.Game.next) g.Game.next();   // 结算弹窗关掉后推进下一天
         res = { ok: true, msg: '关闭弹窗' };
       } else {
         return { ok: false, msg: '未知动作 ' + name };

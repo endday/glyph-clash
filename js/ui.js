@@ -872,6 +872,7 @@
     renderAction: renderAction,
     setRun: function (r) { run = r; },
     setBattle: function (b) { battle = b; },
+    getBattle: function () { return battle; },
     getView: function () { return view; },
     toast: toast,
     modal: modal,

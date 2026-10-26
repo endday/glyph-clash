@@ -118,6 +118,7 @@
       return { ok: true, piece: p };
     }
     if (offer.type === 'skill') {
+      if (GB.Run.skillFull(run)) return { ok: false, full: true };   // 构筑位已满（3/3）
       run.gold -= offer.price;
       offer.sold = true;
       run.skills.push({ id: offer.skillId, tier: offer.tier || 1 });

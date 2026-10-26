@@ -759,7 +759,7 @@
       return;
     }
     if (role === 'gold') {
-      b.stats.gold += p.goldAmt;
+      if (p.side === 'p') b.stats.gold += p.goldAmt;   // 敌方金库不算给玩家
       b.events.push({ type: 'gold', x: p.x, y: p.y, n: p.goldAmt });
       return;
     }
@@ -840,7 +840,7 @@
       t.alive = false;
       if (t.side === 'p') b.stats.killsO++; else b.stats.killsP++;
       b.events.push({ type: 'kill', x: t.x, y: t.y, ch: t.def.ch, side: t.side });
-      if (from && from.goldOnKill && b.stats.gold < 15) b.stats.gold += from.goldOnKill;
+      if (from && from.side === 'p' && from.goldOnKill && b.stats.gold < 15) b.stats.gold += from.goldOnKill;
       rebuildHooks(b);
     }
   }
