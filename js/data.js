@@ -26,11 +26,16 @@
     ultCharge: 14,
     lastStandAt: 0.30,
     lastStandBonus: 0.35,
-    burnCap: 0.13,              // 单个目标身上燃烧的最高秒伤（占最大生命）
-    // 毒：持续更久、上限更低、无视护盾、抑制治疗（和燃烧不是同一件事）
-    poisonCap: 0.05,            // 毒的秒伤上限（占最大生命）
-    poisonDur: 8,               // 毒持续 8 秒（燃烧只有 2.5~3.5 秒）
-    poisonHealCut: 0.5,         // 中毒期间受到的治疗减半
+    // 燃烧（照《大巴扎》）：每 0.5 秒结算一次，伤害 = 当前燃烧值，结算后衰减；
+    // 有护盾时减半。燃烧是「越早烧越疼、会自己烧完」的爆发，靠反复命中续火。
+    burnCap: 0.10,              // 燃烧值上限（占目标最大生命）
+    burnDecay: 0.35,            // 每次结算后衰减的比例（大巴扎是 −1 层，我们按比例）
+    burnConv: 0.5,              // 施加值换算（新模型单次总伤害约为旧模型的 2.3 倍，这里折半）
+    // 毒（照《大巴扎》）：每秒结算一次，伤害 = 当前毒值，不衰减、无视护盾，
+    // 只能靠治疗量抵消。毒是「熬」出来的持续伤害，克盾、被奶克制。
+    poisonCap: 0.10,            // 毒值上限（占最大生命/秒）
+    poisonDur: 8,               // 毒的持续时间（命中会刷新）
+    poisonCure: 0.6,            // 治疗量抵消毒的比例
     splashMul: [1, 0.5, 0.28],   // 溅射衰减：中心 → 邻格 → 再外一圈
     pierceMul: [1, 0.6, 0.38],   // 穿透衰减：本排 → 后一排 → 后两排
     splashCap: 3,               // 一次最多命中 3 格
@@ -179,7 +184,7 @@
         ]
       },
       limits: { rate: 4 },
-      desc: '1×2 抛射·溅射。命中附加燃烧；相邻友军命中时再附加一次。'
+      desc: '1×2 抛射·溅射。命中附加燃烧（每 0.5 秒一跳、逐跳衰减）；相邻友军命中时再附加一次。'
     },
     feng: {
       id: 'feng', ch: '风', name: '风助', size: 1, tier: 1, price: 5, role: 'flag', faction: 'dongwu',
@@ -209,7 +214,7 @@
     nu: {
       id: 'nu', ch: '弩', name: '连弩车', size: 1, tier: 2, price: 6, role: 'arc', faction: 'mojia',
       kind: 'trigger', tags: ['machine', 'ranged'], roles: ['dps', 'trigger'],
-      hp: 720, dmg: 110, atk: 2.8, range: 3, arc: true,
+      hp: 720, dmg: 200, atk: 2.8, range: 3, arc: true,
       // 高频触发器：每 3 箭自己再快一拍（和战鼓旗叠加成「机关枪」）
       on: { hit: { scope: 'self', do: 'charge', v: 0.4, need: 3 } },
       limits: { rate: 4 },
@@ -279,9 +284,9 @@
       id: 'flag_dmg', ch: '麾', name: '战鼓旗', size: 1, tier: 1, price: 5, role: 'flag',
       kind: 'engine', tags: ['flag'], roles: ['engine'],
       // 累计命中 → 每 3 次给出手者一次额外攻击（连击循环）
-      on: { hit: { scope: 'team', do: 'combo', need: 3 } },
+      on: { hit: { scope: 'team', do: 'combo', need: 2, mul: 1.7 } },
       limits: { rate: 3 },
-      desc: '1×1。全队每 3 次命中，出手者补一刀。'
+      desc: '1×1。全队每 2 次命中，出手者补一刀。'
     },
     flag_spd: { id: 'flag_spd', legacy: true, ch: '令', name: '令疾旗', size: 1, tier: 1, price: 5, role: 'flag', aura: 'spd', value: 0.15, desc: '1×1。相邻友军攻速 +15%。' },
     flag_hp: { id: 'flag_hp', legacy: true, ch: '壁', name: '铁壁旗', size: 1, tier: 1, price: 5, role: 'flag', aura: 'hp', value: 0.20, desc: '1×1。相邻友军血量 +20%。' },
@@ -314,7 +319,7 @@
       { id: 'bedrock', name: '磐石', desc: '血量 +45%，但出手间隔 +20%', stats: { hpMul: 1.45, atkMul: 1.2 } }
     ],
     qi: [
-      { id: 'ironhoof', name: '铁骑', desc: '反击 22% → 42%，每秒可反击 2 → 3 次',
+      { id: 'ironhoof', name: '铁骑', desc: '反击 24% → 42%，每秒可反击 2 → 3 次',
         on: { hurt: { v: 0.42 } }, limits: { rate: 1 } },
       { id: 'heavy', name: '重甲', desc: '血量上限 +35%，攻击间隔 +10%', stats: { hpMul: 1.35, atkMul: 1.1 } },
       { id: 'sweep', name: '横扫', desc: '溅射范围 +1，伤害 −10%', stats: { dmgMul: 0.9, splashAdd: 1 } }
@@ -406,7 +411,7 @@
     },
     miaoyu: {
       id: 'miaoyu', name: '苗疆蛊', hero: '蛊师', promise: '先挨打，再让你慢慢烂掉',
-      desc: '全队攻击附带中毒：无视护盾、治疗减半。', passive: 'poison', color: '#5d7a3a',
+      desc: '全队攻击附带中毒：无视护盾，只有治疗能压。', passive: 'poison', color: '#5d7a3a',
       pieces: ['du', 'lu'], start: ['dao']
     },
     wolong: {
@@ -558,9 +563,9 @@
   var ENCHANTS = {
     jin: { id: 'jin', ch: '金', name: '附魔·金', tier: 1, price: 8, desc: '该棋子击杀掉 1 金。', fx: { killGold: 1 } },
     hu: { id: 'hu', ch: '护', name: '附魔·护', tier: 1, price: 8, desc: '该棋子受到的伤害 −18%。', fx: { dmgTaken: 0.18 } },
-    yan: { id: 'yan', ch: '焰', name: '附魔·焰', tier: 2, price: 12, desc: '该棋子攻击附带灼烧（每秒 15% 攻击）。', fx: { burn: 0.15 } },
+    yan: { id: 'yan', ch: '焰', name: '附魔·焰', tier: 2, price: 12, desc: '该棋子攻击附带灼烧：每 0.5 秒结算一次，越烧越弱。', fx: { burn: 0.15 } },
     shuang: { id: 'shuang', ch: '霜', name: '附魔·霜', tier: 2, price: 12, desc: '该棋子命中减速 25%。', fx: { slow: 0.25 } },
-    du: { id: 'du', ch: '毒', name: '附魔·毒', tier: 2, price: 12, desc: '攻击附带中毒：8 秒、无视护盾、期间治疗减半。', fx: { poison: 0.06 } },
+    du: { id: 'du', ch: '毒', name: '附魔·毒', tier: 2, price: 12, desc: '攻击附带中毒：每秒结算、无视护盾，治疗才能压下去。', fx: { poison: 0.06 } },
     lei: { id: 'lei', ch: '雷', name: '附魔·雷', tier: 3, price: 16, desc: '该棋子命中时 20% 概率连锁旁边一人。', fx: { chain: 0.2 } }
   };
 

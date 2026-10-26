@@ -415,22 +415,36 @@
   function foeList(b, p) { return p.side === 'p' ? b.e : b.p; }
   function allyList(b, p) { return p.side === 'p' ? b.p : b.e; }
 
-  // 燃烧可叠加（这是循环的收益来源），上限 = CFG.burnCap（占目标最大生命，默认 13%/秒）
-  function applyBurn(b, tgt, dmg, dur) {
+  // 燃烧（照《大巴扎》的结构，不用它的数值）：
+  //   · 每秒结算 2 次，每次伤害 = 当前燃烧值
+  //   · 结算后燃烧值衰减（大巴扎是 −1 层；我们数值尺度大，改成按比例衰减）
+  //   · 有护盾时伤害减半
+  //   · 每次结算派发 burn_tick，喂机关人 / 火盆旗
+  // 所以燃烧是「越早烧越疼、自己会烧完」的爆发，靠反复命中续火。
+  function applyBurn(b, tgt, dmg, dur, amp) {
     if (!tgt || !tgt.alive || tgt.structure) return;
-    var cap = (tgt.maxHp || 1000) * (CFG.burnCap || 0.13);
+    var cap = (tgt.maxHp || 1000) * (CFG.burnCap || 0.30);
     tgt.burnDps = Math.min((tgt.burnDps || 0) + dmg, cap);
-    tgt.burnUntil = Math.max(tgt.burnUntil, b.t + (dur || 2.5));
+    tgt.burnUntil = Math.max(tgt.burnUntil || 0, b.t + 1.2);   // 只为画个圈，伤害不看这个
   }
 
-  // 毒和燃烧不是一件事：
-  //   燃烧 = 爆发（3 秒、DPS 高、打护盾、每跳派发 burn_tick 喂燃烧引擎）
-  //   毒   = 渗透（8 秒、DPS 低、无视护盾、期间治疗减半、不派发任何事件）
+  // 中毒（照《大巴扎》的结构）：
+  //   · 每秒结算 1 次，伤害 = 当前毒值
+  //   · **不衰减**，**无视护盾**
+  //   · 只能靠治疗压制（治疗量的一半拿去抵消毒）
+  // 所以毒是「熬」出来的持续伤害，克护盾、被奶克制。
   function applyPoison(b, tgt, dmg, dur) {
     if (!tgt || !tgt.alive || tgt.structure) return;
-    var cap = (tgt.maxHp || 1000) * (CFG.poisonCap || 0.08);
+    var cap = (tgt.maxHp || 1000) * (CFG.poisonCap || 0.10);
     tgt.poisonDps = Math.min((tgt.poisonDps || 0) + dmg, cap);
-    tgt.poisonUntil = Math.max(tgt.poisonUntil, b.t + (dur || CFG.poisonDur || 8));
+    tgt.poisonUntil = Math.max(tgt.poisonUntil || 0, b.t + (dur || CFG.poisonDur || 8));
+  }
+
+  // 江东火的「灼烧伤害 +40%」：按施加者所在阵营放大，而不是让每个人都附带燃烧
+  function burnAmpOf(b, p) {
+    if (!p || p.isBook) return 0;
+    var m = p.side === 'p' ? b.modsP : b.modsO;
+    return (m && m.burnAmp) || 0;
   }
 
   // 兵书的 v 是 [铜,银,金]，按档位取值
@@ -470,7 +484,7 @@
     var i, a, list;
     if (spec.do === 'burn') {
       if (!tgt || tgt.side === p.side) return;
-      applyBurn(b, tgt, (ev.dmg || p.dmg) * specV(p, spec), spec.dur);
+      applyBurn(b, tgt, (ev.dmg || p.dmg) * specV(p, spec), spec.dur, burnAmpOf(b, p));
       emit(b, 'trigger', { src: p, tgt: tgt, depth: ev.depth + 1 });
       return;
     }
@@ -769,17 +783,26 @@
       p.hitT = Math.max(0, p.hitT - dt * 3);
       p.healT = Math.max(0, p.healT - dt * 2);
 
-      if (p.burnUntil > b.t) {
-        hurt(b, p, p.burnDps * dt, true);
+      // 燃烧：每 0.5 秒结算一次（每秒两次），伤害 = 当前燃烧值，之后衰减；
+      // 有护盾时减半；每次结算派发 burn_tick（这是燃烧引擎的燃料）
+      if (p.burnDps > 0) {
         p._bt = (p._bt || 0) + dt;
         if (p._bt >= 0.5) {
           p._bt = 0;
-          emit(b, 'burn_tick', { src: p, tgt: p, dmg: p.burnDps * 0.5, side: p.side === 'p' ? 'o' : 'p' });
+          var bd = p.burnDps * (p.shield > 0 ? 0.5 : 1);
+          hurt(b, p, bd, true);
+          emit(b, 'burn_tick', { src: p, tgt: p, dmg: bd, side: p.side === 'p' ? 'o' : 'p' });
+          p.burnDps *= (1 - (CFG.burnDecay || 0.35));
+          if (p.burnDps < (p.maxHp || 1000) * 0.004) p.burnDps = 0;
         }
       }
-      // 毒：无视护盾、不派发事件（所以喂不了燃烧引擎），但会抑制治疗
-      if (p.poisonUntil > b.t) {
-        hurt(b, p, p.poisonDps * dt, true, null, true);
+      // 毒：每秒结算一次，伤害 = 当前毒值；无视护盾、不衰减（只能靠治疗压）
+      if (p.poisonDps > 0) {
+        p._pt = (p._pt || 0) + dt;
+        if (p._pt >= 1) {
+          p._pt = 0;
+          hurt(b, p, p.poisonDps, true, null, true);
+        }
       }
       if (!p.alive) continue;
       if (p.stunned > 0) { p.stunned -= dt; continue; }
@@ -820,9 +843,10 @@
       allies.sort(function (a, z) { return (a.hp / a.maxHp) - (z.hp / z.maxHp); });
       var t = allies[0];
       var before = t.hp;
-      // 中毒期间治疗减半（毒克治疗，这是它和燃烧最大的区别）
-      var healAmt = p.heal * ((t.poisonUntil > b.t) ? (1 - (CFG.poisonHealCut || 0.5)) : 1);
+      var healAmt = p.heal;
       t.hp = Math.min(t.maxHp, t.hp + healAmt);
+      // 治疗压毒：奶量的一部分直接抵消毒（毒的唯一天敌）
+      if (t.poisonDps > 0) t.poisonDps = Math.max(0, t.poisonDps - healAmt * (CFG.poisonCure || 0.6));
       var h2s = p.side === 'p' ? b.healToShield : b.healToShieldO;
       if (h2s > 0 && t.hp > before) {
         var over = (before + healAmt) - t.maxHp;
@@ -885,11 +909,11 @@
     if (!e.alive) return;
     if (depth === undefined) depth = 0;
     hurt(b, e, dmg, false, p);
-    if (p.burn > 0) { e.burnDps = Math.max(e.burnDps, dmg * p.burn); e.burnUntil = Math.max(e.burnUntil, b.t + 2.5); }
+    if (p.burn > 0) applyBurn(b, e, dmg * p.burn, 3, burnAmpOf(b, p));
     if (p.slow > 0) { e.slowMul = p.slow; e.slowUntil = Math.max(e.slowUntil, b.t + 2.5); }
     if (p.poison > 0) applyPoison(b, e, dmg * p.poison, CFG.poisonDur || 8);
     if (p.ench) {
-      if (p.ench.burn) applyBurn(b, e, dmg * p.ench.burn, 2.5);
+      if (p.ench.burn) applyBurn(b, e, dmg * p.ench.burn, 2.5, burnAmpOf(b, p));
       if (p.ench.poison) applyPoison(b, e, dmg * p.ench.poison, CFG.poisonDur || 8);
       if (p.ench.slow) { e.slowMul = p.ench.slow; e.slowUntil = Math.max(e.slowUntil, b.t + 2.5); }
       if (p.ench.chain && b.rng() < p.ench.chain) {
@@ -976,7 +1000,9 @@
     if (u.kind === 'heal') {
       for (i = 0; i < allies.length; i++) {
         a = allies[i]; if (!a.alive) continue;
-        a.hp = Math.min(a.maxHp, a.hp + a.maxHp * u.v * ((a.poisonUntil > b.t) ? (1 - (CFG.poisonHealCut || 0.5)) : 1)); a.healT = 1;
+        a.hp = Math.min(a.maxHp, a.hp + a.maxHp * u.v);
+        if (a.poisonDps > 0) a.poisonDps = Math.max(0, a.poisonDps - a.maxHp * u.v * (CFG.poisonCure || 0.6));
+        a.healT = 1;
       }
       done('heal'); return;
     }

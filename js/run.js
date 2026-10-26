@@ -133,7 +133,7 @@
     if (run._mk === key && run._mv) return run._mv;
     var m = {
       dmgMul: 0, spd: 0, hp: 0, healBoost: 0, auraBoost: 0, arcSpd: 0, arcRange: 0,
-      tankHp: 0, frontArmor: 0, pieceBurn: 0, piecePoison: 0, killGold: 0, killCap: 99,
+      tankHp: 0, frontArmor: 0, pieceBurn: 0, piecePoison: 0, burnAmp: 0, killGold: 0, killCap: 99,
       income: 0, mergeGold: 0, bench: 0, shopSlot: 0, freeReroll: 0, shopDiscount: 0,
       goldPerBig: 0, mergeMulticast: 0,
       sellFull: false, alwaysUnit: false, rupture: 0, openingRush: 0, orders: 0
@@ -153,7 +153,7 @@
     }
     var fac = D.FACTIONS[run.faction];
     if (fac) {
-      if (fac.passive === 'burn') m.pieceBurn += 0.3;
+      if (fac.passive === 'burn') m.burnAmp += 0.4;
       if (fac.passive === 'aura') m.auraBoost += 0.25;
       if (fac.passive === 'poison') m.piecePoison += 0.12;
       if (fac.passive === 'gold') { m.income += 3; m.goldFac = true; }

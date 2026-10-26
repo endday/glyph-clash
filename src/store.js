@@ -55,9 +55,9 @@ function auraText(def, lv) {
   if (def.aura === 'spd') return '相邻棋子攻速 +' + pct + '%'
   if (def.aura === 'hp') return '相邻棋子血量 +' + pct + '%'
   if (def.aura === 'range') return '相邻棋子射程 +' + v
-  if (def.aura === 'burn') return '相邻棋子攻击附带灼烧（每秒 ' + pct + '% 攻击）'
+  if (def.aura === 'burn') return '相邻棋子攻击附带灼烧（每 0.5 秒一跳，逐跳衰减）'
   if (def.aura === 'slow') return '相邻棋子攻击附带减速 ' + pct + '%'
-  if (def.aura === 'poison') return '相邻棋子攻击附带中毒（每秒 ' + pct + '% 攻击）'
+  if (def.aura === 'poison') return '相邻棋子攻击附带中毒（每秒一跳，无视护盾，治疗可解）'
   if (def.aura === 'gold') return '相邻棋子击杀 +' + v + ' 金'
   return ''
 }
