@@ -23,6 +23,7 @@
     ultCharge: 14,
     lastStandAt: 0.30,
     lastStandBonus: 0.35,
+    burnCap: 0.13,           // 单个目标身上燃烧的最高秒伤（占最大生命）
     splashMul: [1, 0.5, 0.28],   // 溅射衰减：中心 → 邻格 → 再外一圈
     pierceMul: [1, 0.6, 0.38],   // 穿透衰减：本排 → 后一排 → 后两排
     splashCap: 3,               // 一次最多命中 3 格
@@ -43,12 +44,30 @@
   // 升级只给小幅属性（ITERATION.md §6）：每级 ×1.35，规则变化交给「进化」而不是数值
   var LVL = [0, 1, 1.80, 3.20, 5.60, 9.50];
 
+  // 标签（见 docs/piece-design.md）：只引用标签，不引用具体棋子名，
+  // 这样后面加「机械弩炮」「火油车」时，老棋子不用改也能吃到联动。
+  //   melee 近战 · ranged 远程 · fire 火焰 · frost 霜 · machine 机械
+  //   heal 治疗 · shield 护盾 · flag 旗帜
+  var TAGS = {
+    melee: { name: '近战' }, ranged: { name: '远程' }, fire: { name: '火焰' },
+    frost: { name: '霜' }, machine: { name: '机械' }, heal: { name: '治疗' },
+    shield: { name: '护盾' }, flag: { name: '旗帜' }
+  };
+
+  // 功能定位（不是「战士/法师」，而是它在构筑里干什么）
+  var ROLES = {
+    dps: '输出', trigger: '触发', convert: '转换',
+    engine: '引擎', support: '支援', grower: '成长'
+  };
+
   // kind = unit / trigger / convert / engine（见 ITERATION.md）
   //   unit    战斗单位：有血、会打、会被消灭
   //   trigger 触发器：出手时制造事件（命中/治疗）
   //   convert 转换器：把命中换成燃烧、减速等
   //   engine  引擎：累积事件、改冷却、复制触发（多为无血挂件）
-  // on = 事件钩子 { 事件类型: { scope: self|adjacent|team, do, v, dur, need } }
+  // on = 事件钩子 { 事件类型: { scope: self|adjacent|team, tag, to, do, v, dur, need } }
+  //   tag = 触发者的标签（谁做的事才算）
+  //   to  = 受益者的标签（给谁加速/充能）
   // limits.rate = 每秒最多触发几次
   // legacy = 暂时退出商店（保留数值，验证完再决定去留）
   //
@@ -61,11 +80,15 @@
   // pierce= 穿透：命中最前排后，同列再往后排 1~2 格（有衰减）
   // splash= 溅射：命中后向周围扩散，最多 3 格，按距离衰减
   var PIECES = {
+    /* ---- 核心 12 枚：每枚都至少改变一件事，而不是只改数值 ---- */
     dao: {
       id: 'dao', ch: '刀', name: '刀客', size: 4, tier: 1, price: 10, role: 'melee',
-      kind: 'unit',
+      kind: 'unit', tags: ['melee'], roles: ['dps', 'trigger'],
       hp: 3600, dmg: 680, atk: 4.0, range: 1,
-      desc: '2×2 近战。'
+      // 触发者：连续 3 刀之后，自己提前出手一次（高频流的第一块砖）
+      on: { hit: { scope: 'self', do: 'charge', v: 0.9, need: 3 } },
+      limits: { rate: 3 },
+      desc: '2×2 近战。每 3 次命中，自己提前 0.9 秒出手。'
     },
     qiang: {
       id: 'qiang', legacy: true, ch: '枪', name: '枪手', size: 2, tier: 1, price: 5, role: 'melee',
@@ -74,33 +97,45 @@
     },
     gong: {
       id: 'gong', ch: '弓', name: '弓手', size: 4, tier: 1, price: 10, role: 'arc',
-      kind: 'unit',
+      kind: 'unit', tags: ['ranged'], roles: ['dps'],
       hp: 2080, dmg: 600, atk: 4.5, range: 4, arc: true,
+      // 输出者：它的「规则」是选目标——越过前排点名后排
       desc: '2×2 抛射。越过前排打最后排。'
     },
     qi: {
       id: 'qi', ch: '骑', name: '骑将', size: 6, tier: 2, price: 15, role: 'tank', kind: 'unit',
+      tags: ['melee'], roles: ['dps', 'trigger'],
       hp: 5400, dmg: 1240, atk: 5.5, range: 1, splash: 1,
-      desc: '2×3 近战·横扫。'
+      // 承伤反击：自己挨打就还手（坦克流的收益出口）
+      on: { hurt: { scope: 'self', do: 'counter', v: 0.22 } },
+      limits: { rate: 2 },
+      desc: '2×3 近战·横扫。自己受到伤害时，立刻反击 22% 伤害。'
     },
     jiang: {
       id: 'jiang', ch: '将', name: '将台', size: 9, tier: 3, price: 22, role: 'arc', kind: 'unit',
+      tags: ['ranged'], roles: ['engine', 'dps'],
       hp: 8100, dmg: 1860, atk: 4.0, range: 3, arc: true, splash: 1,
-      desc: '3×3 抛射·溅射。'
+      // 引擎：场上任何触发都会给全队减冷却（越大越慢的阵，越吃这个）
+      on: { trigger: { scope: 'team', do: 'charge', v: 0.5 } },
+      limits: { rate: 3 },
+      desc: '3×3 抛射·溅射。场上每次触发，全队冷却 −0.5 秒。'
     },
     yi: {
       id: 'yi', ch: '医', name: '医者', size: 1, tier: 1, price: 4, role: 'heal',
-      kind: 'trigger',
+      kind: 'trigger', tags: ['heal'], roles: ['support', 'trigger'],
       hp: 600, heal: 260, atk: 5.0, range: 3,
-      // 每次治疗都算一次「触发」——风助靠它转起来
+      // 每次治疗都算一次「触发」——风助、将台靠它转起来
       emits: 'trigger',
       desc: '1×1。每 5 秒治疗射程内血最少的友军。'
     },
     dun: {
       id: 'dun', ch: '盾', name: '盾卫', size: 2, tier: 1, price: 7, role: 'support',
-      kind: 'unit',
+      kind: 'unit', tags: ['shield', 'melee'], roles: ['support'],
       hp: 2300, shield: 760, atk: 6.0, range: 2,
-      desc: '1×2。每 6 秒给射程内友军套 760 护盾。'
+      // 支援者：护着邻居——相邻友军挨打，盾卫替他还手
+      on: { hurt: { scope: 'adjacent', do: 'counter', v: 0.35, reflect: true } },
+      limits: { rate: 2 },
+      desc: '1×2。每 6 秒给射程内友军套盾；相邻友军挨打时反弹 35% 伤害。'
     },
     gu: {
       id: 'gu', legacy: true, ch: '鼓', name: '鼓手', size: 1, tier: 1, price: 4, role: 'support',
@@ -109,7 +144,7 @@
     },
     shuang: {
       id: 'shuang', ch: '霜', name: '霜术师', size: 1, tier: 1, price: 5, role: 'mid',
-      kind: 'convert',
+      kind: 'convert', tags: ['frost', 'ranged'], roles: ['convert', 'dps'],
       hp: 550, dmg: 150, atk: 5.0, range: 3,
       on: { hit: { scope: 'self', do: 'slow', v: 0.35, dur: 2.5 } },
       limits: { rate: 3 },
@@ -117,7 +152,7 @@
     },
     lei: {
       id: 'lei', ch: '雷', name: '雷术师', size: 2, tier: 2, price: 7, role: 'mid',
-      kind: 'trigger',
+      kind: 'trigger', tags: ['ranged'], roles: ['dps', 'trigger'],
       hp: 1160, dmg: 400, atk: 5.0, range: 4,
       on: { hit: { scope: 'self', do: 'chain', v: 0.5, n: 2 } },
       limits: { rate: 3 },
@@ -127,16 +162,21 @@
     /* ---- 门派专属 ---- */
     huo: {
       id: 'huo', ch: '火', name: '火术师', size: 2, tier: 2, price: 7, role: 'arc', faction: 'dongwu',
-      kind: 'convert',
+      kind: 'convert', tags: ['fire', 'ranged'], roles: ['convert'],
       hp: 1160, dmg: 400, atk: 6.0, range: 4, arc: true, splash: 1,
-      // 相邻友军命中 → 给目标挂燃烧（燃烧循环的入口）
-      on: { hit: { scope: 'adjacent', do: 'burn', v: 0.55, dur: 3.5 } },
+      // 自己命中先点火；相邻友军命中再补一把（燃烧循环的入口）
+      on: {
+        hit: [
+          { scope: 'self', do: 'burn', v: 0.30, dur: 3.0 },
+          { scope: 'adjacent', do: 'burn', v: 0.60, dur: 3.5 }
+        ]
+      },
       limits: { rate: 4 },
-      desc: '1×2 抛射·溅射。相邻友军命中时附加燃烧。'
+      desc: '1×2 抛射·溅射。命中附加燃烧；相邻友军命中时再附加一次。'
     },
     feng: {
       id: 'feng', ch: '风', name: '风助', size: 1, tier: 1, price: 5, role: 'flag', faction: 'dongwu',
-      kind: 'engine',
+      kind: 'engine', tags: ['flag'], roles: ['support', 'engine'],
       on: { trigger: { scope: 'team', do: 'haste', v: 0.5, dur: 2.5 } },
       limits: { rate: 3 },
       desc: '1×1。触发发生时，全队加速。'
@@ -153,17 +193,20 @@
     },
     ji: {
       id: 'ji', ch: '机', name: '机关人', size: 1, tier: 1, price: 5, role: 'flag', faction: 'mojia',
-      kind: 'engine',
+      kind: 'engine', tags: ['machine', 'flag'], roles: ['engine'],
       // 燃烧跳伤 → 给相邻战斗单位减冷却（燃烧循环的回环）
-      on: { burn_tick: { scope: 'team', do: 'charge', v: 1.5 } },
+      on: { burn_tick: { scope: 'team', do: 'charge', v: 1.1 } },
       limits: { rate: 3 },
-      desc: '1×1。敌人被燃烧灼伤时，相邻单位冷却 −1.5 秒。'
+      desc: '1×1。敌人被燃烧灼伤时，相邻单位冷却 −1.1 秒。'
     },
     nu: {
       id: 'nu', ch: '弩', name: '连弩车', size: 1, tier: 2, price: 6, role: 'arc', faction: 'mojia',
-      kind: 'trigger',
+      kind: 'trigger', tags: ['machine', 'ranged'], roles: ['dps', 'trigger'],
       hp: 720, dmg: 110, atk: 2.8, range: 3, arc: true,
-      desc: '1×1 抛射。攻速极快。'
+      // 高频触发器：每 3 箭自己再快一拍（和战鼓旗叠加成「机关枪」）
+      on: { hit: { scope: 'self', do: 'charge', v: 0.4, need: 3 } },
+      limits: { rate: 4 },
+      desc: '1×1 抛射。攻速极快；每 3 箭自己提前 0.4 秒。'
     },
     du: {
       id: 'du', legacy: true, ch: '毒', name: '毒师', size: 1, tier: 1, price: 5, role: 'flag', faction: 'miaoyu',
@@ -227,17 +270,17 @@
   var FLAGS = {
     flag_dmg: {
       id: 'flag_dmg', ch: '麾', name: '战鼓旗', size: 1, tier: 1, price: 5, role: 'flag',
-      kind: 'engine',
+      kind: 'engine', tags: ['flag'], roles: ['engine'],
       // 累计命中 → 每 3 次给出手者一次额外攻击（连击循环）
-      on: { hit: { scope: 'team', do: 'combo', need: 2 } },
+      on: { hit: { scope: 'team', do: 'combo', need: 3 } },
       limits: { rate: 3 },
-      desc: '1×1。全队每 2 次命中，出手者补一刀。'
+      desc: '1×1。全队每 3 次命中，出手者补一刀。'
     },
     flag_spd: { id: 'flag_spd', legacy: true, ch: '令', name: '令疾旗', size: 1, tier: 1, price: 5, role: 'flag', aura: 'spd', value: 0.15, desc: '1×1。相邻友军攻速 +15%。' },
     flag_hp: { id: 'flag_hp', legacy: true, ch: '壁', name: '铁壁旗', size: 1, tier: 1, price: 5, role: 'flag', aura: 'hp', value: 0.20, desc: '1×1。相邻友军血量 +20%。' },
     flag_burn: {
       id: 'flag_burn', ch: '烽', name: '火盆旗', size: 1, tier: 2, price: 5, role: 'flag',
-      kind: 'engine',
+      kind: 'engine', tags: ['flag', 'fire'], roles: ['engine'],
       // 燃烧跳伤 → 把燃烧扩散给旁边的敌人
       on: { burn_tick: { scope: 'team', do: 'spread', v: 0.7 } },
       limits: { rate: 1 },
@@ -262,6 +305,18 @@
       { id: 'wall', name: '厚壁', desc: '血量上限 +30%', stats: { hpMul: 1.3 } },
       { id: 'swift', name: '疾盾', desc: '出手间隔 −25%，护盾更勤', stats: { atkMul: 0.75 } },
       { id: 'bedrock', name: '磐石', desc: '血量 +45%，但出手间隔 +20%', stats: { hpMul: 1.45, atkMul: 1.2 } }
+    ],
+    qi: [
+      { id: 'ironhoof', name: '铁骑', desc: '反击 22% → 42%，每秒可反击 2 → 3 次',
+        on: { hurt: { v: 0.42 } }, limits: { rate: 1 } },
+      { id: 'heavy', name: '重甲', desc: '血量上限 +35%，攻击间隔 +10%', stats: { hpMul: 1.35, atkMul: 1.1 } },
+      { id: 'sweep', name: '横扫', desc: '溅射范围 +1，伤害 −10%', stats: { dmgMul: 0.9, splashAdd: 1 } }
+    ],
+    jiang: [
+      { id: 'order', name: '军令', desc: '每次触发减冷却 0.5 → 1.0 秒', on: { trigger: { v: 1.0 } } },
+      { id: 'banner', name: '大纛', desc: '不再减冷却，改成每次触发全队 +25% 攻速（3 秒）',
+        on: { trigger: { scope: 'team', do: 'haste', v: 0.25, dur: 3 } } },
+      { id: 'tower', name: '楼台', desc: '射程 +1，伤害 +20%', stats: { rangeAdd: 1, dmgMul: 1.2 } }
     ],
     gong: [
       { id: 'rapid', name: '连射', desc: '攻击间隔 −20%', stats: { atkMul: 0.8 } },
@@ -404,6 +459,23 @@
       id: 'kongcheng', ch: '空', name: '空城', tier: 2, when: { perEmpty: true, cap: 6 },
       give: { atkMul: [0.04, 0.06, 0.08] },
       desc: '每 1 格空位，全队攻击 +4/6/8%（最多算 6 格）'
+    },
+    /* ---- 标签类：只引用标签，后面加新棋子会自动兼容 ---- */
+    qixie: {
+      id: 'qixie', ch: '械', name: '器械', tier: 2, when: { perTag: 'machine' },
+      give: { atkMul: [0.08, 0.12, 0.16] },
+      desc: '每有一枚【机械】棋子，全队攻击 +8/12/16%'
+    },
+    tongpao: {
+      id: 'tongpao', ch: '袍', name: '同袍', tier: 1, when: { perTag: 'flag' },
+      give: { hpMul: [0.06, 0.09, 0.13] },
+      desc: '每有一枚【旗帜】，全队血量 +6/9/13%'
+    },
+    xuezhai: {
+      id: 'xuezhai', ch: '血', name: '血债', tier: 2,
+      on: { hurt: { scope: 'team', do: 'haste', v: [0.03, 0.05, 0.07], dur: 1.6, to: 'melee' } },
+      limits: { rate: 4 },
+      desc: '我方任何一人挨打，全体【近战】+3/5/7% 攻速（1.6 秒）'
     },
     /* ---- 位置类 ---- */
     tiebi: {
@@ -555,7 +627,7 @@
 
   GB.D = {
     CFG: CFG, LVL: LVL, ULTS: ULTS, ROLE_ULT: ROLE_ULT, PIECES: PIECES, FLAGS: FLAGS, FACTIONS: FACTIONS,
-    HEROES: HEROES, SKILLS: SKILLS, ENCHANTS: ENCHANTS, UNLOCK: UNLOCK,
+    HEROES: HEROES, SKILLS: SKILLS, ENCHANTS: ENCHANTS, UNLOCK: UNLOCK, TAGS: TAGS, ROLES: ROLES,
     pieceById: pieceById, poolFor: poolFor, heroByChar: heroByChar,
     EVOLVE: EVOLVE, evoOptions: evoOptions, evoDef: evoDef,
     skillById: skillById, skillValue: skillValue

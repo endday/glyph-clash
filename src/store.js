@@ -174,7 +174,8 @@ function snapDetail(p) {
 const CHAIN_LABEL = {
   hit: '命中',
   burn_tick: '燃烧',
-  trigger: '触发'
+  trigger: '触发',
+  hurt: '受击'
 }
 
 function snapBattle(b) {

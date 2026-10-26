@@ -60,7 +60,15 @@
       p.evoDefs.push(ed);
       if (!ed.on) continue;
       for (var ek in ed.on) if (ed.on.hasOwnProperty(ek)) {
-        p.on[ek] = Object.assign({}, p.on[ek] || {}, ed.on[ek]);
+        var baseHook = p.on[ek];
+        if (baseHook && baseHook.length) {
+          // 基础钩子是数组（同一事件挂多套）：进化覆盖到每一套上
+          p.on[ek] = baseHook.map(function (sp) {
+            return Object.assign({}, sp, ed.on[ek]);
+          });
+        } else {
+          p.on[ek] = Object.assign({}, baseHook || {}, ed.on[ek]);
+        }
       }
     }
     p.evoDef = p.evoDefs[0] || null;
@@ -206,6 +214,14 @@
       if (when.perBig) stacks = big;
       if (when.perLevel3) stacks = lvl3;
       if (when.perEmpty) stacks = Math.min(when.cap || 6, empty);
+      if (when.perTag) {
+        stacks = 0;
+        for (i = 0; i < list.length; i++) {
+          var tp = list[i];
+          if (!tp.alive || tp.structure) continue;
+          if (tp.def.tags && tp.def.tags.indexOf(when.perTag) >= 0) stacks++;
+        }
+      }
       if (stacks <= 0) continue;
 
       for (var gk in give) {
@@ -227,6 +243,12 @@
             var q2 = list[i];
             if (!q2.alive || q2.structure) continue;
             q2.raw.spdMul += v;
+          }
+        } else if (gk === 'hpMul') {
+          for (i = 0; i < list.length; i++) {
+            var q4 = list[i];
+            if (!q4.alive || q4.structure) continue;
+            q4.raw.hp *= (1 + v);
           }
         } else if (gk === 'armor') {
           for (i = 0; i < list.length; i++) {
@@ -391,10 +413,10 @@
   function foeList(b, p) { return p.side === 'p' ? b.e : b.p; }
   function allyList(b, p) { return p.side === 'p' ? b.p : b.e; }
 
-  // 燃烧可叠加（这是循环的收益来源），上限 = 目标最大生命的 8%/秒
+  // 燃烧可叠加（这是循环的收益来源），上限 = CFG.burnCap（占目标最大生命，默认 13%/秒）
   function applyBurn(b, tgt, dmg, dur) {
     if (!tgt || !tgt.alive || tgt.structure) return;
-    var cap = (tgt.maxHp || 1000) * 0.13;
+    var cap = (tgt.maxHp || 1000) * (CFG.burnCap || 0.18);
     tgt.burnDps = Math.min((tgt.burnDps || 0) + dmg, cap);
     tgt.burnUntil = Math.max(tgt.burnUntil, b.t + (dur || 2.5));
   }
@@ -403,6 +425,12 @@
   function specV(p, spec) {
     if (p.isBook) return D.skillValue ? D.skillValue(spec.v, p.book.tier) : spec.v;
     return spec.v;
+  }
+
+  function hasTag(p, tag) {
+    if (!tag || !p || !p.def) return false;
+    var tg = p.def.tags;
+    return !!tg && tg.indexOf(tag) >= 0;
   }
 
   function runHook(b, p, ev, spec) {
@@ -414,6 +442,16 @@
       var anchor = src || tgt;
       if (anchor === p) return;
       if (!adjacentTo(p, anchor)) return;
+    }
+    // 标签：只有带这个标签的棋子触发时才算（「相邻的机械棋子攻击时……」）
+    if (spec.tag && !hasTag(src, spec.tag)) return;
+    // 累计 N 次才触发一次（比单纯限频更能控制节奏）
+    if (spec.need) {
+      p._cnt = p._cnt || {};
+      var ck = ev.type + '|' + (spec.do || '');
+      p._cnt[ck] = (p._cnt[ck] || 0) + 1;
+      if (p._cnt[ck] < spec.need) return;
+      p._cnt[ck] = 0;
     }
     if (!rateOk(b, p, ev.type)) return;
 
@@ -457,11 +495,22 @@
       for (i = 0; i < list.length; i++) {
         a = list[i];
         if (!a.alive || a.structure || a.def.role === 'flag') continue;
-        if (!adjacentTo(p, a)) continue;
+        if (spec.to && !hasTag(a, spec.to)) continue;
+        if (spec.scope === 'self') { if (a !== p) continue; }
+        else if (spec.scope === 'adjacent' && !adjacentTo(p, a)) continue;
         a.cd = Math.max(0, (a.cd || 0) - (spec.v || 1));
         a.charged = 1;
       }
       emit(b, 'trigger', { src: p, tgt: tgt, depth: ev.depth + 1 });
+      return;
+    }
+    if (spec.do === 'counter') {
+      // 承伤反击：挨打的人（或护着他的邻居）立刻还手。
+      // reflect = 按「挨了多少」反弹（盾卫这种自己没攻击力的用它）
+      if (!tgt || tgt.side === p.side || !tgt.alive || tgt.structure) return;
+      var base = spec.reflect ? (ev.dmg || 0) : p.dmg;
+      if (base <= 0) return;
+      hit(b, p, tgt, base * (specV(p, spec) || 0.5), p.side === 'p', ev.depth + 1);
       return;
     }
     if (spec.do === 'combo') {
@@ -502,6 +551,7 @@
       for (i = 0; i < list.length; i++) {
         a = list[i];
         if (!a.alive) continue;
+        if (spec.to && !hasTag(a, spec.to)) continue;
         a.hasteUntil = Math.max(a.hasteUntil || 0, b.t + (spec.dur || 2));
         a.hasteMul = Math.max(a.hasteMul || 0, specV(p, spec) || 0.35);
       }
@@ -519,7 +569,12 @@
         var p = hooks[i];
         if (!p.alive) continue;
         var spec = p.on[ev.type];
-        if (spec) runHook(b, p, ev, spec);
+        if (!spec) continue;
+        if (spec.length) {                     // 同一事件挂了多套钩子（数组）
+          for (var si = 0; si < spec.length; si++) runHook(b, p, ev, spec[si]);
+        } else {
+          runHook(b, p, ev, spec);
+        }
       }
     }
   }
@@ -631,8 +686,16 @@
     var rushP = b.t < 15 ? (b.modsP.openingRush || 0) : 0;
     var rushO = b.t < 15 ? (b.modsO.openingRush || 0) : 0;
 
-    tick(b, b.p, dt, rushP, true);
-    tick(b, b.e, dt, rushO, false);
+    // 谁先出手：固定「我方先结算」会让同归于尽的场合永远是我方赢
+    // （同一帧两边都放技能时，后结算的那边已经死了）。按帧交替，长期公平。
+    b.tickN = (b.tickN || 0) + 1;
+    if (b.tickN % 2) {
+      tick(b, b.p, dt, rushP, true);
+      tick(b, b.e, dt, rushO, false);
+    } else {
+      tick(b, b.e, dt, rushO, false);
+      tick(b, b.p, dt, rushP, true);
+    }
 
     for (var i = b.shots.length - 1; i >= 0; i--) {
       b.shots[i].t += dt;
@@ -643,8 +706,17 @@
       if (b.floats[j].life <= 0) b.floats.splice(j, 1);
     }
 
-    if (unitsLeft(b.p) === 0) { b.status = 'lose'; return; }
-    if (unitsLeft(b.e) === 0) { b.status = 'win'; return; }
+    flush(b);
+    resolveDeaths(b);
+
+    var leftP = unitsLeft(b.p), leftE = unitsLeft(b.e);
+    if (leftP === 0 && leftE === 0) {
+      // 同帧全灭：按伤害判，双方都为零才算平
+      b.status = b.stats.dmgP > b.stats.dmgO ? 'win' : (b.stats.dmgP < b.stats.dmgO ? 'lose' : 'draw');
+      return;
+    }
+    if (leftP === 0) { b.status = 'lose'; return; }
+    if (leftE === 0) { b.status = 'win'; return; }
     if (b.t >= CFG.battleTime) {
       // 超时比剩余总血量（试过按百分比比，结果养出「龟缩流」，回退）
       var hpP = sumHp(b.p), hpO = sumHp(b.e);
@@ -655,7 +727,6 @@
     // 背水一战：只剩最后一个棋子时攻速暴涨
     if (!b.lastStandP && aliveCount(b.p) <= 1) { b.lastStandP = true; b.events.push({ type: 'laststand', side: 'p' }); }
     if (!b.lastStandO && aliveCount(b.e) <= 1) { b.lastStandO = true; b.events.push({ type: 'laststand', side: 'o' }); }
-    flush(b);
   }
 
   function aliveCount(list) {
@@ -833,54 +904,86 @@
       real -= ab;
     }
     t.hp -= real;
-    if (t.canUlt && !t.ultReady) t.ultT = Math.min(1, t.ultT + dmg * 0.0004);
-    if (!dot) t.hitT = 1;
-    if (t.hp <= 0) {
-      t.hp = 0;
-      t.alive = false;
-      if (t.side === 'p') b.stats.killsO++; else b.stats.killsP++;
-      b.events.push({ type: 'kill', x: t.x, y: t.y, ch: t.def.ch, side: t.side });
-      if (from && from.side === 'p' && from.goldOnKill && b.stats.gold < 15) b.stats.gold += from.goldOnKill;
-      rebuildHooks(b);
+    if (t.canUlt && !t.ultReady) {
+      // 充能按「占最大生命的比例」算，不按伤害绝对值：否则等级一高（血厚伤害也高）
+      // 一次普攻就充能满，全场会连锁放大招（试玩里出现过 0.7 秒结束的战斗）
+      t.ultT = Math.min(1, t.ultT + Math.min(0.12, (dmg / (t.maxHp || 1)) * 0.35));
     }
+    if (!dot) t.hitT = 1;
+    // 挨打事件：承伤反击 / 挨打充能 / 「每受一次伤害」类效果都挂在这上面
+    if (!dot && !t.structure && from && from.side !== t.side && t.hp > 0) {
+      emit(b, 'hurt', { src: t, tgt: from, dmg: real, depth: 1 });
+    }
+    if (t.hp <= 0) {
+      // 同帧同归于尽：先标记，等本帧双方都结算完再收尸（见 resolveDeaths）。
+      // 否则「我方先结算」会让同时出手的场合永远是我方白赢。
+      t.hp = 0;
+      t.deadPending = from || null;
+    }
+  }
+
+  // 一帧结束后统一结算死亡：本帧双方的动作都已经打完
+  function resolveDeaths(b) {
+    var lists = [b.p, b.e], dirty = false;
+    for (var s = 0; s < lists.length; s++) {
+      var list = lists[s];
+      for (var i = 0; i < list.length; i++) {
+        var t = list[i];
+        if (!t.alive || !t.deadPending) continue;
+        var from = t.deadPending;
+        t.deadPending = null;
+        t.alive = false;
+        dirty = true;
+        if (t.side === 'p') b.stats.killsO++; else b.stats.killsP++;
+        b.events.push({ type: 'kill', x: t.x, y: t.y, ch: t.def.ch, side: t.side });
+        if (from && from.side === 'p' && from.goldOnKill && b.stats.gold < 15) b.stats.gold += from.goldOnKill;
+      }
+    }
+    if (dirty) rebuildHooks(b);
   }
 
   function cast(b, p, u, tag) {
     if (!p.alive) return;
     var i, a, e;
+    // 大招必须站在「施法者自己这一边」结算：早期写死 b.p，敌人放大招反而治疗我方
+    var allies = p.side === 'p' ? b.p : b.e;
+    var foes = p.side === 'p' ? b.e : b.p;
     function done(kind) { b.events.push({ type: tag, x: p.x, y: p.y, kind: kind, n: u.name }); }
 
-    if (u.kind === 'gold') { b.stats.gold += u.v; done('gold'); return; }
+    if (u.kind === 'gold') {
+      if (p.side === 'p') b.stats.gold += u.v;
+      done('gold'); return;
+    }
     if (u.kind === 'heal') {
-      for (i = 0; i < b.p.length; i++) {
-        a = b.p[i]; if (!a.alive) continue;
+      for (i = 0; i < allies.length; i++) {
+        a = allies[i]; if (!a.alive) continue;
         a.hp = Math.min(a.maxHp, a.hp + a.maxHp * u.v); a.healT = 1;
       }
       done('heal'); return;
     }
     if (u.kind === 'shield') {
-      for (i = 0; i < b.p.length; i++) {
-        a = b.p[i]; if (!a.alive) continue;
+      for (i = 0; i < allies.length; i++) {
+        a = allies[i]; if (!a.alive) continue;
         a.shield = Math.min(a.maxHp * 0.8, a.shield + a.maxHp * u.v);
       }
       done('shield'); return;
     }
     if (u.kind === 'haste') {
-      for (i = 0; i < b.p.length; i++) {
-        a = b.p[i]; if (!a.alive) continue;
+      for (i = 0; i < allies.length; i++) {
+        a = allies[i]; if (!a.alive) continue;
         a.hasteUntil = b.t + u.dur;
       }
       done('haste'); return;
     }
     if (u.kind === 'slow') {
-      for (i = 0; i < b.e.length; i++) {
-        e = b.e[i]; if (!e.alive || e.structure) continue;
+      for (i = 0; i < foes.length; i++) {
+        e = foes[i]; if (!e.alive || e.structure) continue;
         e.slowMul = u.v; e.slowUntil = b.t + u.dur;
       }
       done('slow'); return;
     }
     var list = [];
-    var foe = p.side === 'p' ? b.e : b.p;
+    var foe = foes;
     for (i = 0; i < foe.length; i++) {
       e = foe[i];
       if (!e.alive || e.structure) continue;

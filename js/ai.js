@@ -82,6 +82,11 @@
       } else if (def2.heal) {
         v = st2.hp * 0.5 + st2.heal * 26 * (1 + Math.min(1.5, teamHp / 4000));
       }
+      // 承伤反击：把「挨打」变成伤害，血越厚越值钱
+      if (def2.on && def2.on.hurt) {
+        v += st2.hp * 0.22 + Math.max(st2.dps, 120) * 3.5;
+        if (def2.tags && def2.tags.indexOf('shield') >= 0) v += 300;
+      }
       total += v * mult;
     }
 
@@ -92,6 +97,18 @@
     if (has('tiebi')) total *= 1.06;
     if (has('jifeng')) total *= 1 + Math.min(0.25, hitRate * 0.05);
     if (has('lianu')) total *= 1.08;
+    // 标签类兵书：数一数场上带这个标签的棋子
+    var tagCount = function (tag) {
+      var n = 0;
+      for (var ti = 0; ti < board.length; ti++) {
+        var td = D.pieceById(board[ti].k);
+        if (td && td.tags && td.tags.indexOf(tag) >= 0) n++;
+      }
+      return n;
+    };
+    if (has('qixie')) total *= 1 + 0.08 * tagCount('machine');
+    if (has('tongpao')) total *= 1 + 0.05 * tagCount('flag');
+    if (has('xuezhai')) total *= 1 + 0.05 * tagCount('melee');
     return total;
   }
 

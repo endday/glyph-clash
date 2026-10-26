@@ -219,15 +219,11 @@
     while (run.bench.length < n) run.bench.push(null);
   }
 
-  // 备战席按「格」算容量：棋子占它真实的格数
+  // 备战席按「个数」算容量（和 addToBench 的 freeSlotIndex 一致）：
+  // 大件只影响显示大小，不额外占位置。旧版按格数算，会出现 6 个位子只放得下 2 个刀客。
   function benchUsed(run) {
     var n = 0;
-    for (var i = 0; i < run.bench.length; i++) {
-      var p = run.bench[i];
-      if (!p) continue;
-      var d = p.def || D.pieceById(p.k);
-      n += (d && d.size) || 1;
-    }
+    for (var i = 0; i < run.bench.length; i++) if (run.bench[i]) n++;
     return n;
   }
   function benchFree(run) { return benchSlots(run) - benchUsed(run); }
