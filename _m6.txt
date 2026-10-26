@@ -1,0 +1,17 @@
+feat(driver): 给无头浏览器/AI 的操作接口 + 每一步截图回放工具
+
+js/driver.js（挂在 window.DRIVER，由 src/main.js 引入）：
+- state()    结构化状态：天/阶段/金/声望/背包格、备战席与棋盘棋子（含 size/level/evos/ench/cells）、
+             货架、兵书、兵书三选一、流派二选一、对手阵容、战斗内血量与事件计数
+- actions()  当前可执行动作数组 [{name,args,label}]：buy/reroll/expand/place/merge/sell/
+             chooseBook/chooseEvo/battle/speed/waitBattle
+- do(name,args) 执行并返回 {ok,msg}
+- waitBattle(ms) 等战斗结束（自动开 3 倍速）
+
+tools/play.mjs（CDP，复用 shot.mjs 的连接方式）：
+- node tools/play.mjs --url http://127.0.0.1:5173/ --out shots/play --auto 40
+- 或 --steps steps.json 指定动作序列（支持 {"eval":"..."} 临时探针）
+- 每步产出 step-NNN-a.png（动作前）/ step-NNN-b.png（动作后）+ transcript.json + actions.json
+
+实测 14 步自动对局：买→合成→选流派→上阵→开战→等结算→进第 2 天→选兵书→继续买，
+全部 action 返回 ok，状态与截图逐帧留存。

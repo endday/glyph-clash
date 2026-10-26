@@ -6,6 +6,7 @@ import '../css/style.css'
 
 // 纯逻辑层：副作用导入，统一挂到 window.GB
 import '../js/core.js'
+import '../js/driver.js'
 import '../js/data.js'
 import '../js/map.js'
 import '../js/battle.js'
