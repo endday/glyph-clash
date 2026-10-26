@@ -26,7 +26,7 @@
           <em>升到 2 级，二选一。选完就定，不能反悔。</em>
         </span>
       </header>
-      <div class="evos">
+      <div class="evos" :class="{ three: ui.evo.options.length >= 3 }">
         <button v-for="o in ui.evo.options" :key="o.id" class="evo-opt" @click="pickEvo(o.id)">
           <b>{{ o.name }}</b>
           <em>{{ o.desc }}</em>
@@ -236,6 +236,7 @@ function onBack() {
 
 .evos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .books3 { grid-template-columns: 1fr; }
+.evos.three { grid-template-columns: 1fr; }
 .evo-opt .tier { font-style: normal; font-size: 9px; margin-left: 5px; padding: 1px 5px;
   border-radius: 999px; background: rgba(160, 122, 45, .18); color: #7a5c14; vertical-align: 2px; }
 .evo-opt { display: flex; flex-direction: column; gap: 3px; text-align: left; cursor: pointer;

@@ -254,53 +254,74 @@
     dao: [
       { id: 'fast', name: '快刀', desc: '攻击间隔 −25%，出手更密', stats: { atkMul: 0.75 } },
       { id: 'heavy', name: '重刀', desc: '攻击间隔 +30%，命中附带 25% 燃烧', stats: { atkMul: 1.3 },
-        on: { hit: { scope: 'self', do: 'burn', v: 0.25, dur: 3 } } }
+        on: { hit: { scope: 'self', do: 'burn', v: 0.25, dur: 3 } } },
+      { id: 'cleave', name: '连斩', desc: '25% 概率命中后立刻再补一刀（每秒最多 2 次）',
+        on: { hit: { scope: 'self', do: 'rerollHit', v: 0.25 } }, limits: { rate: 2 } }
     ],
     dun: [
       { id: 'wall', name: '厚壁', desc: '血量上限 +30%', stats: { hpMul: 1.3 } },
-      { id: 'swift', name: '疾盾', desc: '出手间隔 −25%，护盾更勤', stats: { atkMul: 0.75 } }
+      { id: 'swift', name: '疾盾', desc: '出手间隔 −25%，护盾更勤', stats: { atkMul: 0.75 } },
+      { id: 'bedrock', name: '磐石', desc: '血量 +45%，但出手间隔 +20%', stats: { hpMul: 1.45, atkMul: 1.2 } }
     ],
     gong: [
       { id: 'rapid', name: '连射', desc: '攻击间隔 −20%', stats: { atkMul: 0.8 } },
-      { id: 'pierce', name: '穿云', desc: '伤害 +35%，射程 +1', stats: { dmgMul: 1.35, rangeAdd: 1 } }
+      { id: 'pierce', name: '穿云', desc: '伤害 +35%，射程 +1', stats: { dmgMul: 1.35, rangeAdd: 1 } },
+      { id: 'volley', name: '连珠', desc: '20% 概率命中后再射一箭，攻击间隔 +10%',
+        stats: { atkMul: 1.1 }, on: { hit: { scope: 'self', do: 'rerollHit', v: 0.2 } }, limits: { rate: 2 } }
     ],
     /* 触发器 / 转换器 */
     huo: [
       { id: 'blaze', name: '烈焰', desc: '燃烧强度 45% → 65%', on: { hit: { v: 0.65 } } },
-      { id: 'rain', name: '火雨', desc: '溅射范围 +1，但伤害 −15%', stats: { dmgMul: 0.85, splashAdd: 1 } }
+      { id: 'rain', name: '火雨', desc: '溅射范围 +1，但伤害 −15%', stats: { dmgMul: 0.85, splashAdd: 1 } },
+      { id: 'ignite', name: '引燃', desc: '燃烧强度 45% → 80%，攻击间隔 +20%',
+        stats: { atkMul: 1.2 }, on: { hit: { v: 0.8 } } }
     ],
     shuang: [
       { id: 'deep', name: '深寒', desc: '减速 35% → 55%', on: { hit: { v: 0.55 } } },
-      { id: 'armor', name: '霜甲', desc: '血量上限 +30%', stats: { hpMul: 1.3 } }
+      { id: 'armor', name: '霜甲', desc: '血量上限 +30%', stats: { hpMul: 1.3 } },
+      { id: 'freeze', name: '冰封', desc: '减速 35% → 70%，攻击间隔 +15%',
+        stats: { atkMul: 1.15 }, on: { hit: { v: 0.7 } } }
     ],
     lei: [
       { id: 'fork', name: '分叉', desc: '连锁目标 +1', on: { hit: { n: 3 } } },
-      { id: 'storm', name: '雷暴', desc: '伤害 +30%', stats: { dmgMul: 1.3 } }
+      { id: 'storm', name: '雷暴', desc: '伤害 +30%', stats: { dmgMul: 1.3 } },
+      { id: 'conduct', name: '导电', desc: '连锁目标 2 → 4，伤害 −20%',
+        stats: { dmgMul: 0.8 }, on: { hit: { n: 4 } } }
     ],
     nu: [
       { id: 'rapid', name: '速射', desc: '攻击间隔 −30%', stats: { atkMul: 0.7 } },
-      { id: 'sunder', name: '破甲', desc: '伤害 +40%', stats: { dmgMul: 1.4 } }
+      { id: 'sunder', name: '破甲', desc: '伤害 +40%', stats: { dmgMul: 1.4 } },
+      { id: 'scatter', name: '散射', desc: '溅射范围 +1，伤害 −10%', stats: { dmgMul: 0.9, splashAdd: 1 } }
     ],
     yi: [
       { id: 'firstaid', name: '急救', desc: '治疗量 +40%', stats: { healMul: 1.4 } },
-      { id: 'wide', name: '广域', desc: '射程 +1，出手 −15%', stats: { rangeAdd: 1, atkMul: 0.85 } }
+      { id: 'wide', name: '广域', desc: '射程 +1，出手 −15%', stats: { rangeAdd: 1, atkMul: 0.85 } },
+      { id: 'mercy', name: '普渡', desc: '射程 +1，但治疗量 −15%', stats: { rangeAdd: 1, healMul: 0.85 } }
     ],
     /* 引擎 */
     flag_dmg: [
       { id: 'urgent', name: '急鼓', desc: '每 1 次命中就触发（每秒上限不变）', on: { hit: { need: 1 } }, limits: { rate: -1 } },
-      { id: 'loud', name: '战鼓', desc: '连击补刀伤害 1.3 → 1.8 倍', on: { hit: { mul: 1.8 } } }
+      { id: 'loud', name: '战鼓', desc: '连击补刀伤害 1.3 → 1.8 倍', on: { hit: { mul: 1.8 } } },
+      { id: 'warcry', name: '鼓魂', desc: '连击补刀伤害 1.3 → 2.2 倍，但每秒最多 1 次',
+        on: { hit: { mul: 2.2 } }, limits: { rate: -1 } }
     ],
     flag_burn: [
       { id: 'wildfire', name: '燎原', desc: '扩散强度 50% → 85%', on: { burn_tick: { v: 0.85 } } },
-      { id: 'control', name: '控火', desc: '每秒可扩散 1 → 2 次', limits: { rate: 1 } }
+      { id: 'control', name: '控火', desc: '每秒可扩散 1 → 2 次', limits: { rate: 1 } },
+      { id: 'breeze', name: '火借风势', desc: '不再扩散燃烧，改成每次灼伤给全队加速 15%（1.5 秒）',
+        on: { burn_tick: { scope: 'team', do: 'haste', v: 0.15, dur: 1.5 } } }
     ],
     feng: [
       { id: 'long', name: '长风', desc: '加速 50% → 75%', on: { trigger: { v: 0.75 } } },
-      { id: 'gale', name: '疾风', desc: '每秒可触发 3 → 5 次', limits: { rate: 2 } }
+      { id: 'gale', name: '疾风', desc: '每秒可触发 3 → 5 次', limits: { rate: 2 } },
+      { id: 'upwind', name: '逆风', desc: '加速 50% → 35%，但持续 2 → 4 秒',
+        on: { trigger: { v: 0.35, dur: 4 } } }
     ],
     ji: [
       { id: 'precise', name: '精密', desc: '每次减冷却 1.5 → 2.5 秒', on: { burn_tick: { v: 2.5 } } },
-      { id: 'link', name: '连动', desc: '每秒可充能 3 → 5 次', limits: { rate: 2 } }
+      { id: 'link', name: '连动', desc: '每秒可充能 3 → 5 次', limits: { rate: 2 } },
+      { id: 'overload', name: '过载', desc: '每次减冷却 1.5 → 2.5 秒，但每秒最多 2 次',
+        on: { burn_tick: { v: 2.5 } }, limits: { rate: -1 } }
     ]
   };
 
