@@ -26,7 +26,8 @@
     </div>
 
     <div class="topactions">
-      <button class="icon-btn" id="btn-menu" aria-label="菜单">☰</button>
+      <button class="icon-btn" data-menu aria-label="菜单" @click.stop="toggleMenu">☰</button>
+      <button class="icon-btn hidden" id="btn-menu">☰</button>
       <!-- 原来的速度/音乐按钮留着，只是藏起来：游戏里的点击逻辑完全不用改 -->
       <button class="icon-btn hidden" id="btn-speed">1×</button>
       <button class="icon-btn hidden" id="btn-sound">♪</button>
@@ -118,21 +119,13 @@ function onDocTap(e) {
 }
 
 onMounted(() => {
-  // 原菜单按钮绑着「打开玩法弹窗」，把它换成下拉：
-  // 克隆一个同 id 的节点，旧监听全丢，再挂自己的
-  const old = document.getElementById('btn-menu')
-  if (old) {
-    menuEl = old.cloneNode(true)
-    old.parentNode.replaceChild(menuEl, old)
-    menuEl.addEventListener('click', toggleMenu)
-  }
+  menuEl = document.querySelector('[data-menu]')
   document.addEventListener('pointerdown', onDocTap)
   readState()
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', onDocTap)
-  if (menuEl) menuEl.removeEventListener('click', toggleMenu)
 })
 </script>
 
