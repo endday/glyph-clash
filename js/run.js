@@ -242,6 +242,9 @@
   function addToBench(run, p) {
     var i = freeSlotIndex(run);        // 只看有没有空位，不管棋子多占地方
     if (i < 0) return false;
+    // 从棋盘拖回备战席：先清掉棋盘占位，否则会留下「看不见但占格」的残留
+    clearCells(run, p);
+    p.cells = [];
     if (i < 0) return false;
     run.bench[i] = p;
     p.cells = null;
