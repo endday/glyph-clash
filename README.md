@@ -142,7 +142,7 @@ npm run preview  # 预览构建产物 http://localhost:4173
 
 ## 棋子
 
-20 枚人物 + 6 面共享阵旗。血量列是**出场实际值**（`hp × hpScale 1.6`），等级每 +1 全表 ×2.1。
+20 枚人物 + 6 面共享阵旗。血量列是**出场实际值**（`hp × hpScale 1.6`），等级每 +1 全表 ×1.8。
 
 | 棋子 | 字 | 格 | 价 | 类型 | 血(Lv1) | 攻 | 出手间隔 | 射程 | 特性 |
 |---|---|---|---|---|---|---|---|---|---|
@@ -229,7 +229,7 @@ npm run preview  # 预览构建产物 http://localhost:4173
 
 ## 升级、合成、卖出
 
-- **同棋子（同字）+ 同级**相叠 → 升 1 级，**上限 5 级**；`LVL = [–, 1, 2.1, 4.41, 9.26, 19.45]`，即血量 / 攻击 / 治疗每级 ×2.1；
+- **同棋子（同字）+ 同级**相叠 → 升 1 级，**上限 5 级**；`LVL = [–, 1, 1.8, 4.41, 9.26, 19.45]`，即血量 / 攻击 / 治疗每级 ×1.8；
 - 尺寸不变（5 级刀客还是 1 格），合成是背包里唯一的「扩容」手段：两格变一格；
 - **3 级起解锁大招**（按角色给，见下）；
 - **将台（jiang）不允许参与合成**，也没有任何池子会刷它；
@@ -488,7 +488,7 @@ tools/shot.mjs           CDP 截图脚本（真移动端视口）
 |---|---|
 | 全局节奏 | `CFG`（`hpScale`、`battleTime`、`startGold`、`incomeBase`、`cellsStart/cellsMax`、`expandPrices`、`splashMul`、`pierceMul`、`lastStandBonus`） |
 | 棋子本体 | `PIECES`（`hp/dmg/atk/range/pierce/splash/chain/arc/aura/price/tier/size`） |
-| 成长曲线 | `LVL`（1/2.1/4.41/9.26/19.45） |
+| 成长曲线 | `LVL`（1/1.8/4.41/9.26/19.45） |
 | 技能 | `ULTS`（小技能）、`ROLE_ULT`（大招） |
 | 阵旗 / 兵书 / 附魔 / 门派 | `FLAGS`、`SKILLS`、`ENCHANTS`、`FACTIONS` |
 | 每天刷什么 | `UNLOCK`、`poolFor()` |
