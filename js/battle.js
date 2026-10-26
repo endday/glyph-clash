@@ -37,6 +37,7 @@
       hitT: 0, healT: 0, shield: 0,
       slowMul: 0, slowUntil: 0,
       burnDps: 0, burnUntil: 0,
+      poisonDps: 0, poisonUntil: 0,
       hasteUntil: 0,
       stunned: 0,
       evo: src.evo || null,
@@ -103,6 +104,7 @@
           spdMul: 1 + (m.spd || 0) + (d.arc ? (m.arcSpd || 0) : 0),
           range: (d.range || 1) + (es.rangeAdd || 0) + (d.arc ? (m.arcRange || 0) : 0),
           burn: (d.burn || 0) + (m.pieceBurn || 0),
+          poison: (d.poison || 0) + (m.piecePoison || 0),
           slow: (d.slow || 0),
           gold: (d.role === 'gold' ? 0 : (m.killGold || 0))
         };
@@ -134,7 +136,7 @@
     p.range = r.range + a.range;
     p.burn = r.burn + a.burn;
     p.slow = r.slow + a.slow;
-    p.poison = a.poison;
+    p.poison = r.poison + a.poison;
     p.goldOnKill = r.gold + a.gold;
   }
 
@@ -160,7 +162,7 @@
         var kind = src.def.aura;
         // 光环降级（ITERATION.md §4）：只保留 血/攻速/射程 三条属性光环，
         // 燃烧、减速、中毒、金币这些改成事件规则（见各棋子的 on 钩子）
-        if (kind !== 'hp' && kind !== 'spd' && kind !== 'range') continue;
+        if (kind !== 'hp' && kind !== 'spd' && kind !== 'range' && kind !== 'poison') continue;
         var val = auraValue(src.def, src.level) * (1 + (m.auraBoost || 0));
         var touched = {};
         for (j = 0; j < src.cells.length; j++) {
@@ -416,9 +418,19 @@
   // 燃烧可叠加（这是循环的收益来源），上限 = CFG.burnCap（占目标最大生命，默认 13%/秒）
   function applyBurn(b, tgt, dmg, dur) {
     if (!tgt || !tgt.alive || tgt.structure) return;
-    var cap = (tgt.maxHp || 1000) * (CFG.burnCap || 0.18);
+    var cap = (tgt.maxHp || 1000) * (CFG.burnCap || 0.13);
     tgt.burnDps = Math.min((tgt.burnDps || 0) + dmg, cap);
     tgt.burnUntil = Math.max(tgt.burnUntil, b.t + (dur || 2.5));
+  }
+
+  // 毒和燃烧不是一件事：
+  //   燃烧 = 爆发（3 秒、DPS 高、打护盾、每跳派发 burn_tick 喂燃烧引擎）
+  //   毒   = 渗透（8 秒、DPS 低、无视护盾、期间治疗减半、不派发任何事件）
+  function applyPoison(b, tgt, dmg, dur) {
+    if (!tgt || !tgt.alive || tgt.structure) return;
+    var cap = (tgt.maxHp || 1000) * (CFG.poisonCap || 0.08);
+    tgt.poisonDps = Math.min((tgt.poisonDps || 0) + dmg, cap);
+    tgt.poisonUntil = Math.max(tgt.poisonUntil, b.t + (dur || CFG.poisonDur || 8));
   }
 
   // 兵书的 v 是 [铜,银,金]，按档位取值
@@ -765,6 +777,10 @@
           emit(b, 'burn_tick', { src: p, tgt: p, dmg: p.burnDps * 0.5, side: p.side === 'p' ? 'o' : 'p' });
         }
       }
+      // 毒：无视护盾、不派发事件（所以喂不了燃烧引擎），但会抑制治疗
+      if (p.poisonUntil > b.t) {
+        hurt(b, p, p.poisonDps * dt, true, null, true);
+      }
       if (!p.alive) continue;
       if (p.stunned > 0) { p.stunned -= dt; continue; }
       if (p.def.role === 'flag') continue;
@@ -804,16 +820,18 @@
       allies.sort(function (a, z) { return (a.hp / a.maxHp) - (z.hp / z.maxHp); });
       var t = allies[0];
       var before = t.hp;
-      t.hp = Math.min(t.maxHp, t.hp + p.heal);
+      // 中毒期间治疗减半（毒克治疗，这是它和燃烧最大的区别）
+      var healAmt = p.heal * ((t.poisonUntil > b.t) ? (1 - (CFG.poisonHealCut || 0.5)) : 1);
+      t.hp = Math.min(t.maxHp, t.hp + healAmt);
       var h2s = p.side === 'p' ? b.healToShield : b.healToShieldO;
       if (h2s > 0 && t.hp > before) {
-        var over = (before + p.heal) - t.maxHp;
+        var over = (before + healAmt) - t.maxHp;
         if (over > 0) t.shield = Math.min(t.maxHp * 0.6, t.shield + over * h2s);
       }
       t.healT = 1;
       if (p.def.emits === 'trigger') emit(b, 'trigger', { src: p, tgt: t, depth: 0 });
       b.events.push({ type: 'heal', x1: p.x, y1: p.y, x2: t.x, y2: t.y, side: p.side });
-      b.floats.push({ x: t.x, y: t.y, v: '+' + Math.round(p.heal), life: 0.7, good: true });
+      b.floats.push({ x: t.x, y: t.y, v: '+' + Math.round(healAmt), life: 0.7, good: true });
       return;
     }
     if (role === 'support' && p.def.shield) {
@@ -869,9 +887,10 @@
     hurt(b, e, dmg, false, p);
     if (p.burn > 0) { e.burnDps = Math.max(e.burnDps, dmg * p.burn); e.burnUntil = Math.max(e.burnUntil, b.t + 2.5); }
     if (p.slow > 0) { e.slowMul = p.slow; e.slowUntil = Math.max(e.slowUntil, b.t + 2.5); }
-    if (p.poison > 0) { e.burnDps = Math.max(e.burnDps, dmg * p.poison); e.burnUntil = Math.max(e.burnUntil, b.t + 2.5); }
+    if (p.poison > 0) applyPoison(b, e, dmg * p.poison, CFG.poisonDur || 8);
     if (p.ench) {
-      if (p.ench.burn) { e.burnDps = Math.max(e.burnDps, dmg * p.ench.burn); e.burnUntil = Math.max(e.burnUntil, b.t + 2.5); }
+      if (p.ench.burn) applyBurn(b, e, dmg * p.ench.burn, 2.5);
+      if (p.ench.poison) applyPoison(b, e, dmg * p.ench.poison, CFG.poisonDur || 8);
       if (p.ench.slow) { e.slowMul = p.ench.slow; e.slowUntil = Math.max(e.slowUntil, b.t + 2.5); }
       if (p.ench.chain && b.rng() < p.ench.chain) {
         var near = alliesAround(b, e, 1.6);
@@ -895,10 +914,10 @@
     return out;
   }
 
-  function hurt(b, t, dmg, dot, from) {
+  function hurt(b, t, dmg, dot, from, ignoreShield) {
     if (!t.alive) return;
     var real = dmg * (1 - (t.armor || 0));
-    if (t.shield > 0) {
+    if (!ignoreShield && t.shield > 0) {
       var ab = Math.min(t.shield, real);
       t.shield -= ab;
       real -= ab;
@@ -957,7 +976,7 @@
     if (u.kind === 'heal') {
       for (i = 0; i < allies.length; i++) {
         a = allies[i]; if (!a.alive) continue;
-        a.hp = Math.min(a.maxHp, a.hp + a.maxHp * u.v); a.healT = 1;
+        a.hp = Math.min(a.maxHp, a.hp + a.maxHp * u.v * ((a.poisonUntil > b.t) ? (1 - (CFG.poisonHealCut || 0.5)) : 1)); a.healT = 1;
       }
       done('heal'); return;
     }
@@ -1017,6 +1036,8 @@
     step: step,
     auraValue: auraValue,
     emit: emit,
+    applyBurn: applyBurn,
+    applyPoison: applyPoison,
     rebuildHooks: rebuildHooks,
     trace: function (b) { return b ? b.trace.slice(-6) : []; },
     useUlt: useUlt,

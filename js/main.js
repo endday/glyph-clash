@@ -82,7 +82,7 @@
     var aliveP = GB.Battle.aliveCount(battle.p), aliveO = GB.Battle.aliveCount(battle.e);
     var hpP = Math.round(GB.Battle.sumHp(battle.p)), hpO = Math.round(GB.Battle.sumHp(battle.e));
 
-    var w0 = run.wins, p0 = run.prestige, day = run.day;
+    var w0 = run.wins, p0 = run.prestige, day = run.day, g0 = run.gold;
     GB.Run.endBattle(run, win, battle);
 
     var rows = [
@@ -92,6 +92,12 @@
       { k: '残余血量', v: hpP + ' / ' + hpO }
     ];
     rows.unshift({ k: '声望', v: p0 + ' → ' + (win ? p0 : run.prestige) });
+    // 连败补偿：让「这局输了但我攒到了钱」这件事在结算里看得见
+    if (!win && run.lastLossGold) {
+      rows.splice(1, 0, { k: '连败 ' + run.lossStreak, v: '+ ' + run.lastLossGold + ' 金' });
+    } else if (win) {
+      rows.splice(1, 0, { k: '赏金', v: '+ ' + (run.lastReward || 0) + ' 金' });
+    }
 
     GB.UI.showResult(win, {
       sub: win

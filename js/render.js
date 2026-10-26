@@ -425,6 +425,12 @@
         ctx.strokeStyle = 'rgba(120,200,140,' + p.healT + ')';
         ctx.lineWidth = 2; ctx.stroke();
       }
+      if (p.poisonUntil > battle.t) {
+        ctx.beginPath(); ctx.arc(cx, cy, s * 0.92, 0, 6.284);
+        ctx.setLineDash([3, 3]);
+        ctx.strokeStyle = 'rgba(120,170,90,.85)'; ctx.lineWidth = 1.6; ctx.stroke();
+        ctx.setLineDash([]);
+      }
       if (p.burnUntil > battle.t) {
         ctx.beginPath(); ctx.arc(cx, cy, s * 1.0, 0, 6.284);
         ctx.strokeStyle = 'rgba(220,110,50,.75)'; ctx.lineWidth = 2; ctx.stroke();

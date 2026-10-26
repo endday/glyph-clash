@@ -18,12 +18,19 @@
     rerollCost: 2,
     offersBase: 4,
     incomeBase: 7,
+    // 连败补偿（卖血流）：第 1/2/3/4+ 连败分别给 3/5/7/9 金。
+    // 对比胜场 4+⌊天/2⌋（第 1 天 4 金、第 9 天 8 金）——连败不亏钱，但亏声望。
+    lossStreakGold: [3, 5, 7, 9],
     battleTime: 45,           // 大件血池更厚，缩短上限避免「拖到超时比血」
     hpScale: 2.2,           // 血条基准：AI 试玩里战斗中位只有 5.7 秒，抬到 2.2 让战斗读得完
     ultCharge: 14,
     lastStandAt: 0.30,
     lastStandBonus: 0.35,
-    burnCap: 0.13,           // 单个目标身上燃烧的最高秒伤（占最大生命）
+    burnCap: 0.13,              // 单个目标身上燃烧的最高秒伤（占最大生命）
+    // 毒：持续更久、上限更低、无视护盾、抑制治疗（和燃烧不是同一件事）
+    poisonCap: 0.05,            // 毒的秒伤上限（占最大生命）
+    poisonDur: 8,               // 毒持续 8 秒（燃烧只有 2.5~3.5 秒）
+    poisonHealCut: 0.5,         // 中毒期间受到的治疗减半
     splashMul: [1, 0.5, 0.28],   // 溅射衰减：中心 → 邻格 → 再外一圈
     pierceMul: [1, 0.6, 0.38],   // 穿透衰减：本排 → 后一排 → 后两排
     splashCap: 3,               // 一次最多命中 3 格
@@ -210,7 +217,7 @@
     },
     du: {
       id: 'du', legacy: true, ch: '毒', name: '毒师', size: 1, tier: 1, price: 5, role: 'flag', faction: 'miaoyu',
-      aura: 'poison', value: 0.25,
+      aura: 'poison', value: 0.10,
       desc: '1×1。相邻友军攻击附带中毒。'
     },
     lu: {
@@ -399,7 +406,7 @@
     },
     miaoyu: {
       id: 'miaoyu', name: '苗疆蛊', hero: '蛊师', promise: '先挨打，再让你慢慢烂掉',
-      desc: '中毒可叠 3 层。', passive: 'poison', color: '#5d7a3a',
+      desc: '全队攻击附带中毒：无视护盾、治疗减半。', passive: 'poison', color: '#5d7a3a',
       pieces: ['du', 'lu'], start: ['dao']
     },
     wolong: {
@@ -553,7 +560,7 @@
     hu: { id: 'hu', ch: '护', name: '附魔·护', tier: 1, price: 8, desc: '该棋子受到的伤害 −18%。', fx: { dmgTaken: 0.18 } },
     yan: { id: 'yan', ch: '焰', name: '附魔·焰', tier: 2, price: 12, desc: '该棋子攻击附带灼烧（每秒 15% 攻击）。', fx: { burn: 0.15 } },
     shuang: { id: 'shuang', ch: '霜', name: '附魔·霜', tier: 2, price: 12, desc: '该棋子命中减速 25%。', fx: { slow: 0.25 } },
-    du: { id: 'du', ch: '毒', name: '附魔·毒', tier: 2, price: 12, desc: '该棋子攻击附带中毒（每秒 12% 攻击）。', fx: { poison: 0.12 } },
+    du: { id: 'du', ch: '毒', name: '附魔·毒', tier: 2, price: 12, desc: '攻击附带中毒：8 秒、无视护盾、期间治疗减半。', fx: { poison: 0.06 } },
     lei: { id: 'lei', ch: '雷', name: '附魔·雷', tier: 3, price: 16, desc: '该棋子命中时 20% 概率连锁旁边一人。', fx: { chain: 0.2 } }
   };
 

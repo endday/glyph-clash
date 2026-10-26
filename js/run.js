@@ -33,6 +33,7 @@
       gold: CFG.startGold,
       wins: 0,
       losses: 0,
+      lossStreak: 0,
       board: {},
       bench: new Array(CFG.benchBase).fill(null),
       cellsOwned: null,   // 已解锁的格子 key（默认取解锁顺序的前 N 格）
@@ -132,7 +133,7 @@
     if (run._mk === key && run._mv) return run._mv;
     var m = {
       dmgMul: 0, spd: 0, hp: 0, healBoost: 0, auraBoost: 0, arcSpd: 0, arcRange: 0,
-      tankHp: 0, frontArmor: 0, pieceBurn: 0, killGold: 0, killCap: 99,
+      tankHp: 0, frontArmor: 0, pieceBurn: 0, piecePoison: 0, killGold: 0, killCap: 99,
       income: 0, mergeGold: 0, bench: 0, shopSlot: 0, freeReroll: 0, shopDiscount: 0,
       goldPerBig: 0, mergeMulticast: 0,
       sellFull: false, alwaysUnit: false, rupture: 0, openingRush: 0, orders: 0
@@ -154,7 +155,7 @@
     if (fac) {
       if (fac.passive === 'burn') m.pieceBurn += 0.3;
       if (fac.passive === 'aura') m.auraBoost += 0.25;
-      if (fac.passive === 'poison') m.pieceBurn += 0.2;
+      if (fac.passive === 'poison') m.piecePoison += 0.12;
       if (fac.passive === 'gold') { m.income += 3; m.goldFac = true; }
       if (fac.passive === 'range') m.arcRange += 1;
     }
@@ -435,14 +436,24 @@
     var gold = 0;
     if (win) {
       run.wins++;
+      run.lossStreak = 0;
+      run.lastLossGold = 0;
       gold = 4 + Math.floor(run.day / 2);
       run.gold += gold;
+      run.lastReward = gold;
       pushLog(run, '论战得胜 · 第 ' + run.wins + ' 胜，赏 ' + gold + ' 金。');
     } else {
       run.losses++;
       var loss = run.day;
       run.prestige = Math.max(0, run.prestige - loss);
-      pushLog(run, '论战失利 · 声望 −' + loss + '。');
+      // 连败补偿：卖血流的经济来源。连胜归零，连败越长给得越多（封顶 9 金）。
+      run.lossStreak = (run.lossStreak || 0) + 1;
+      var tbl = CFG.lossStreakGold || [3, 5, 7, 9];
+      var bonus = tbl[Math.min(run.lossStreak, tbl.length) - 1];
+      run.gold += bonus;
+      run.lastLossGold = bonus;
+      run.lastReward = bonus;
+      pushLog(run, '论战失利 · 声望 −' + loss + ' · 连败 ' + run.lossStreak + '，补偿 ' + bonus + ' 金。');
     }
     var inc = mods(run).income || 0;
     if (inc) run.gold += inc;
@@ -464,7 +475,7 @@
   function cloneForSave(run) {
     return JSON.stringify({
       v: run.v, seed: run.seed, faction: run.faction, day: run.day, phase: run.phase,
-      prestige: run.prestige, gold: run.gold, wins: run.wins, losses: run.losses,
+      prestige: run.prestige, gold: run.gold, wins: run.wins, losses: run.losses, lossStreak: run.lossStreak || 0,
       board: run.board, bench: run.bench, cellsOwned: run.cellsOwned, skills: run.skills,
       bookOffer: run.bookOffer, offers: run.offers,
       rerollCount: run.rerollCount, log: run.log, counter: run.counters
